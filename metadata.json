@@ -1,0 +1,13 @@
+{
+  "name": "BhashaSetu - Interstate Voice Translator & Offline Mesh",
+  "description": "Real-time voice-to-voice translation and peer-to-peer local mesh intercom between Indian states, supporting Hindi, English, Odia, and Mandali with offline-first audio synthesis and dialect processing.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation",
+    "clipboard-write",
+    "clipboard-read"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

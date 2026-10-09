@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Neo-Apple Glassmorphism Light Mode Styles */
+  .neo-glass-panel {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 16px 40px -8px rgba(160, 175, 215, 0.22), 0 2px 6px rgba(0, 0, 0, 0.02);
+  }
+
+  .neo-glass-card {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 10px 28px -6px rgba(180, 195, 230, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  }
+
+  .neo-glass-subtle {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+  }
+
+  .neo-gel-button {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(240, 245, 255, 0.75));
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 8px 20px -4px rgba(147, 170, 220, 0.25), inset 0 2px 2px rgba(255, 255, 255, 1), inset 0 -2px 3px rgba(200, 210, 240, 0.2);
+  }
+
+  .neo-gel-button-active {
+    background: linear-gradient(135deg, rgba(238, 242, 255, 0.9), rgba(224, 231, 255, 0.85));
+    box-shadow: inset 0 3px 6px rgba(165, 180, 252, 0.35), 0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+
+  .neo-gel-ptt {
+    background: linear-gradient(135deg, #f472b6 0%, #c084fc 45%, #60a5fa 100%);
+    box-shadow: 0 16px 45px -8px rgba(236, 72, 153, 0.45), 0 8px 24px -4px rgba(96, 165, 250, 0.35), inset 0 2px 4px rgba(255, 255, 255, 0.7), inset 0 -4px 8px rgba(147, 51, 234, 0.4);
+    border: 4px solid rgba(255, 255, 255, 0.85);
+  }
+
+  .neo-gel-ptt-active {
+    background: linear-gradient(135deg, #f43f5e 0%, #e11d48 50%, #db2777 100%);
+    box-shadow: 0 20px 50px rgba(244, 63, 94, 0.5), inset 0 4px 8px rgba(0, 0, 0, 0.2), 0 0 0 8px rgba(244, 63, 94, 0.2);
+    border: 4px solid rgba(255, 255, 255, 0.95);
+  }
+
+  .neo-iridescent-header {
+    background: linear-gradient(135deg, #60a5fa 0%, #c084fc 50%, #f472b6 100%);
+  }
+
+  .neo-iridescent-text {
+    background: linear-gradient(135deg, #3b82f6 0%, #a855f7 50%, #ec4899 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Phonetic Text Subtle Fade-in & Slide-up Animation */
+  @keyframes phoneticFadeSlideUp {
+    0% {
+      opacity: 0;
+      transform: translateY(7px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-phonetic-appear {
+    animation: phoneticFadeSlideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
+
+  /* Emergency Flashing Beacon Animations */
+  @keyframes emergencyBeaconStrobe {
+    0%, 100% {
+      opacity: 0.15;
+      transform: scale(0.98);
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.02);
+      box-shadow: 0 0 35px rgba(239, 68, 68, 0.8), 0 0 60px rgba(220, 38, 38, 0.4);
+    }
+  }
+
+  .animate-sos-strobe {
+    animation: emergencyBeaconStrobe 0.8s ease-in-out infinite;
+  }
+}
