@@ -45,8 +45,8 @@ export const SUPPORTED_LANGUAGES: LanguageConfig[] = [
     region: 'Eastern India',
     script: 'Odia',
     flagEmoji: '🇮🇳',
-    sttCode: 'hi-IN', // Web Speech standard fallback for browsers without native Odia STT
-    ttsCode: 'hi-IN', // Pitch modulated for Odia vocalic inflections
+    sttCode: 'or-IN',
+    ttsCode: 'or-IN',
     ttsPitch: 1.15,
     ttsRate: 0.92,
     greetingExample: {
@@ -655,6 +655,115 @@ export const OFFLINE_PHRASEBOOK: PhraseItem[] = [
     },
     icon: 'Crosshair',
   },
+  // Curated Quick-Calls from Home Page (Ensures 100% offline accuracy & zero silent fallbacks)
+  {
+    id: 'hp_quick_sos',
+    category: 'emergency',
+    english: 'I need immediate help! Emergency.',
+    hindi: {
+      text: 'मुझे तुरंत सहायता चाहिए',
+      phonetic: 'Mujhe turant sahayata chahiye',
+    },
+    odia: {
+      text: 'ମୋତେ ତୁରନ୍ତ ସାହାଯ୍ୟ ଦରକାର',
+      phonetic: 'Mote turanta sahayya darkar',
+    },
+    mandali: {
+      text: 'मां जो झटपट डाक्टरी मदद चहिदी',
+      phonetic: 'Maan jo jhatpat daktari madad chahidi',
+    },
+    icon: 'HeartPulse',
+  },
+  {
+    id: 'hp_quick_greet',
+    category: 'general',
+    english: 'Namaste! Where are you going?',
+    hindi: {
+      text: 'नमस्ते! आप कहाँ जा रहे हैं?',
+      phonetic: 'Namaste! Aap kahan ja rahe hain?',
+    },
+    odia: {
+      text: 'ନମସ୍କାର! ଆପଣ କୁଆଡ଼େ ଯାଉଛନ୍ତି?',
+      phonetic: 'Namaskara! Aapana kuade jauchhanti?',
+    },
+    mandali: {
+      text: 'तुसां जो नमस्कार! कुथु जांदे?',
+      phonetic: 'Tusan jo namaskar! Kuthu jaande?',
+    },
+    icon: 'Smile',
+  },
+  {
+    id: 'hp_quick_water',
+    category: 'food',
+    english: 'I need clean drinking water.',
+    hindi: {
+      text: 'मुझे पीने का पानी चाहिए',
+      phonetic: 'Mujhe peene ka paani chahiye',
+    },
+    odia: {
+      text: 'ମୋତେ ପିଇବା ପାଣି ଦରକାର',
+      phonetic: 'Mote piiba pani darkar',
+    },
+    mandali: {
+      text: 'मां जो पाणी चहिदा',
+      phonetic: 'Maan jo paani chahida',
+    },
+    icon: 'Utensils',
+  },
+  {
+    id: 'hp_quick_bus',
+    category: 'directions',
+    english: 'Where is the nearest bus stand or railway station?',
+    hindi: {
+      text: 'नजदीकी बस स्टैंड या रेलवे स्टेशन कहाँ है?',
+      phonetic: 'Nazdeeki bus stand ya railway station kahan hai?',
+    },
+    odia: {
+      text: 'ନିକଟତମ ବସ ଷ୍ଟାଣ୍ଡ କିମ୍ବା ରେଳ ଷ୍ଟେସନ କେଉଁଠାରେ ଅଛି?',
+      phonetic: 'Nikatatama bus stand kimba railway station keunthare achhi?',
+    },
+    mandali: {
+      text: 'नेड़ला बस अडा या रेल स्टेशन कुथु है?',
+      phonetic: 'Nedla bus adda ya rail station kuthu hai?',
+    },
+    icon: 'MapPin',
+  },
+  {
+    id: 'hp_quick_thanks',
+    category: 'general',
+    english: 'Thank you very much! Thank you.',
+    hindi: {
+      text: 'आपका बहुत-बहुत धन्यवाद',
+      phonetic: 'Aapka bahut-bahut dhanyavaad',
+    },
+    odia: {
+      text: 'ଆପଣଙ୍କୁ ବହୁତ ବହୁତ ଧନ୍ୟବାଦ',
+      phonetic: 'Aapananku bahuta bahuta dhanyabada',
+    },
+    mandali: {
+      text: 'बड़ा-बड़ा धन्यवाद',
+      phonetic: 'Bada-bada dhanyavaad',
+    },
+    icon: 'Heart',
+  },
+  {
+    id: 'hp_quick_how_are_you',
+    category: 'general',
+    english: 'How are you? How is everything?',
+    hindi: {
+      text: 'केड़ा हाल चाल है?',
+      phonetic: 'Keda haal chaal hai?',
+    },
+    odia: {
+      text: 'ଆପଣ କେମିତି ଅଛନ୍ତି?',
+      phonetic: 'Aapana kemiti achhanti?',
+    },
+    mandali: {
+      text: 'केड़ा हाल चाल है?',
+      phonetic: 'Keda haal chaal hai?',
+    },
+    icon: 'Smile',
+  },
 ];
 
 // Offline Mandali Dialect Transformation Rules (Himachali / Mandeali Pahadi grammar)
@@ -763,6 +872,83 @@ export function applyMandaliDialectRules(hindiText: string): { text: string; pho
   };
 }
 
+// Reverse Mandali Dialect Transformation Rules (Western Pahadi -> Hindi)
+export function applyReverseMandaliRules(mandaliText: string): { text: string; phonetic: string; notes: string } {
+  const text = mandaliText.trim();
+
+  const directReverseMap: Record<string, string> = {
+    'तुसां जो नमस्कार': 'नमस्ते',
+    'तुसां जो नमस्कार!': 'नमस्ते!',
+    'कुथु जांदे': 'कहाँ जा रहे हैं',
+    'कुथु जांदे?': 'कहाँ जा रहे हैं?',
+    'तुसां जो नमस्कार! कुथु जांदे?': 'नमस्ते! आप कहाँ जा रहे हैं?',
+    'तुहाड़ा नां के है': 'आपका नाम क्या है',
+    'तुहाड़ा नां के है?': 'आपका नाम क्या है?',
+    'तेरा नां के है': 'तुम्हारा नाम क्या है',
+    'तेरा नां के है?': 'तुम्हारा नाम क्या है?',
+    'केड़ा हाल चाल है': 'आप कैसे हैं',
+    'केड़ा हाल चाल है?': 'आप कैसे हैं?',
+    'केड़ा हाल है': 'कैसे हो',
+    'बड़ा-बड़ा धन्यवाद': 'बहुत-बहुत धन्यवाद',
+    'मां जो पाणी चहिदा': 'मुझे पीने का पानी चाहिए',
+    'मां जो झटपट डाक्टरी मदद चहिदी': 'मुझे तुरंत सहायता चाहिए',
+    'मदद चहिदी': 'मदद चाहिए',
+    'रस्ता दस्सा': 'रास्ता बताइए',
+    'मां जो नी पता': 'मुझे नहीं पता',
+    'हौं ठीक हां': 'मैं ठीक हूँ',
+    'अस्सां ठीक हां': 'हम ठीक हैं',
+  };
+
+  for (const [mjl, hi] of Object.entries(directReverseMap)) {
+    if (text.toLowerCase() === mjl.toLowerCase()) {
+      return {
+        text: hi,
+        phonetic: transliterateDevanagariToPhonetic(hi),
+        notes: 'Reverse translated from Mandali dialect to Hindi',
+      };
+    }
+  }
+
+  const wordReplacements: Array<[RegExp, string]> = [
+    [/\bतुसां जो नमस्कार\b/g, 'नमस्ते'],
+    [/\bकुथु जांदे\b/g, 'कहाँ जा रहे हैं'],
+    [/\bमां जो\b/g, 'मुझे'],
+    [/\bहौं\b/g, 'मैं'],
+    [/\bअस्सां\b/g, 'हम'],
+    [/\bतुसां\b/g, 'आप'],
+    [/\bतुहाड़ा\b/g, 'आपका'],
+    [/\bतुहाड़ी\b/g, 'आपकी'],
+    [/\bतुहाड़े\b/g, 'आपके'],
+    [/\bकुथु\b/g, 'कहाँ'],
+    [/\bके\b/g, 'क्या'],
+    [/\bकेड़ा\b/g, 'कैसा'],
+    [/\bकेतड़ा\b/g, 'कितना'],
+    [/\bकेतणे\b/g, 'कितने'],
+    [/\bइथी\b/g, 'यहाँ'],
+    [/\bतिथी\b/g, 'वहाँ'],
+    [/\bनी\b/g, 'नहीं'],
+    [/\bपाणी\b/g, 'पानी'],
+    [/\bचहिदा\b/g, 'चाहिए'],
+    [/\bचहिदी\b/g, 'चाहिए'],
+    [/\bबोला\b/g, 'बोलिए'],
+    [/\bदस्सा\b/g, 'बताइए'],
+    [/\bऔंदे\b/g, 'आ रहे'],
+    [/\bनेड़े\b/g, 'पास'],
+    [/\bहां\b/g, 'हूँ'],
+  ];
+
+  let transformed = text;
+  for (const [pattern, rep] of wordReplacements) {
+    transformed = transformed.replace(pattern, rep);
+  }
+
+  return {
+    text: transformed,
+    phonetic: transliterateDevanagariToPhonetic(transformed),
+    notes: 'Reverse translated from Mandali (Western Pahadi) morpho-phonetic dialect into standard Hindi',
+  };
+}
+
 // Transliterate Devanagari to Romanized phonetic script for audio-visual guide
 export function transliterateDevanagariToPhonetic(devanagari: string): string {
   const charMap: Record<string, string> = {
@@ -840,6 +1026,11 @@ export function transliterateMalayalamToPhonetic(malayalam: string): string {
   return out.replace(/\s+/g, ' ').trim();
 }
 
+// Helper to strip punctuation and spacing for robust offline phrase matching
+function cleanQueryPunctuation(str: string): string {
+  return str.toLowerCase().replace(/[!?।,.\s+—\-_/\\()]/g, '').trim();
+}
+
 // Offline Lexicon lookup engine
 export function findInOfflinePhrasebook(
   inputText: string,
@@ -847,15 +1038,60 @@ export function findInOfflinePhrasebook(
   targetLang: LanguageCode
 ): { text: string; phonetic: string; notes?: string } | null {
   const query = inputText.trim().toLowerCase();
+  const cleanQ = cleanQueryPunctuation(inputText);
 
   for (const phrase of OFFLINE_PHRASEBOOK) {
     let sourceMatch = false;
 
-    if (sourceLang === 'en' && phrase.english.toLowerCase().includes(query)) sourceMatch = true;
-    if (sourceLang === 'hi' && (phrase.hindi.text.includes(query) || phrase.hindi.phonetic.toLowerCase().includes(query))) sourceMatch = true;
-    if (sourceLang === 'or' && (phrase.odia.text.includes(query) || phrase.odia.phonetic.toLowerCase().includes(query))) sourceMatch = true;
-    if (sourceLang === 'mjl' && (phrase.mandali.text.includes(query) || phrase.mandali.phonetic.toLowerCase().includes(query))) sourceMatch = true;
-    if (sourceLang === 'ml' && phrase.malayalam && (phrase.malayalam.text.includes(query) || phrase.malayalam.phonetic.toLowerCase().includes(query))) sourceMatch = true;
+    if (sourceLang === 'en') {
+      const cleanP = cleanQueryPunctuation(phrase.english);
+      if (
+        phrase.english.toLowerCase().includes(query) ||
+        (cleanQ && cleanP && (cleanQ === cleanP || (cleanQ.length >= 8 && cleanP.includes(cleanQ)) || (cleanP.length >= 8 && cleanQ.includes(cleanP))))
+      ) {
+        sourceMatch = true;
+      }
+    }
+    if (sourceLang === 'hi') {
+      const cleanP = cleanQueryPunctuation(phrase.hindi.text);
+      if (
+        phrase.hindi.text.includes(query) ||
+        (cleanQ && cleanP && (cleanQ === cleanP || (cleanQ.length >= 6 && cleanP.includes(cleanQ)) || (cleanP.length >= 6 && cleanQ.includes(cleanP)))) ||
+        phrase.hindi.phonetic.toLowerCase().includes(query)
+      ) {
+        sourceMatch = true;
+      }
+    }
+    if (sourceLang === 'or') {
+      const cleanP = cleanQueryPunctuation(phrase.odia.text);
+      if (
+        phrase.odia.text.includes(query) ||
+        (cleanQ && cleanP && (cleanQ === cleanP || (cleanQ.length >= 6 && cleanP.includes(cleanQ)) || (cleanP.length >= 6 && cleanQ.includes(cleanP)))) ||
+        phrase.odia.phonetic.toLowerCase().includes(query)
+      ) {
+        sourceMatch = true;
+      }
+    }
+    if (sourceLang === 'mjl') {
+      const cleanP = cleanQueryPunctuation(phrase.mandali.text);
+      if (
+        phrase.mandali.text.includes(query) ||
+        (cleanQ && cleanP && (cleanQ === cleanP || (cleanQ.length >= 6 && cleanP.includes(cleanQ)) || (cleanP.length >= 6 && cleanQ.includes(cleanP)))) ||
+        phrase.mandali.phonetic.toLowerCase().includes(query)
+      ) {
+        sourceMatch = true;
+      }
+    }
+    if (sourceLang === 'ml' && phrase.malayalam) {
+      const cleanP = cleanQueryPunctuation(phrase.malayalam.text);
+      if (
+        phrase.malayalam.text.includes(query) ||
+        (cleanQ && cleanP && (cleanQ === cleanP || (cleanQ.length >= 6 && cleanP.includes(cleanQ)) || (cleanP.length >= 6 && cleanQ.includes(cleanP)))) ||
+        phrase.malayalam.phonetic.toLowerCase().includes(query)
+      ) {
+        sourceMatch = true;
+      }
+    }
 
     if (sourceMatch) {
       if (targetLang === 'hi') return { text: phrase.hindi.text, phonetic: phrase.hindi.phonetic, notes: 'Direct match from offline interstate emergency phrasebook' };

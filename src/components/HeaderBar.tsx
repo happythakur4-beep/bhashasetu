@@ -11,11 +11,21 @@ import {
   Moon,
   Sparkles,
   Settings,
+  Share2,
+  Check,
+  HelpCircle,
+  Activity,
+  AlertCircle,
+  Brain,
 } from 'lucide-react';
 import { ChannelNumber, RadioChannel } from '../types';
 import { RADIO_CHANNELS } from '../services/languageRegistry';
 import { meshNetwork } from '../services/meshNetwork';
+import { peerMesh, PeerStatus } from '../services/peerMesh';
 import { useTheme } from '../context/ThemeContext';
+import { DiagnosticsModal } from './DiagnosticsModal';
+import { OnboardingModal } from './OnboardingModal';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderBarProps {
   currentChannel: ChannelNumber;
@@ -24,8 +34,9 @@ interface HeaderBarProps {
   hasGeminiKey: boolean;
   isMuted: boolean;
   onToggleMute: () => void;
-  onOpenRadar: () => void;
+  onOpenRadar?: () => void;
   onOpenSettings?: () => void;
+  onOpenWordLearning?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -37,11 +48,30 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onToggleMute,
   onOpenRadar,
   onOpenSettings,
+  onOpenWordLearning,
 }) => {
   const { isDark, toggleTheme } = useTheme();
   const [timeStr, setTimeStr] = useState('');
   const [localNode, setLocalNode] = useState(meshNetwork.getLocalNode());
   const [showChannelDropdown, setShowChannelDropdown] = useState(false);
+  const [roomCodeInput, setRoomCodeInput] = useState(peerMesh.getRoomCode() || '');
+  const [peerStatus, setPeerStatus] = useState<PeerStatus>(peerMesh.getStatus());
+  const [peerCount, setPeerCount] = useState<number>(peerMesh.getPeerCount());
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    const unsub = peerMesh.onStatusChange((status, count) => {
+      setPeerStatus(status);
+      setPeerCount(count);
+      const activeRoom = peerMesh.getRoomCode();
+      if (activeRoom && activeRoom !== roomCodeInput) {
+        setRoomCodeInput(activeRoom);
+      }
+    });
+    return () => unsub();
+  }, [roomCodeInput]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -57,6 +87,21 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   const activeChannelConfig = RADIO_CHANNELS.find((c) => c.channel === currentChannel) || RADIO_CHANNELS[2];
 
+  const handleShareClick = () => {
+    const code = roomCodeInput || peerMesh.getRoomCode() || '4829';
+    if (!roomCodeInput) setRoomCodeInput(code);
+    if (peerMesh.getRoomCode() !== code) peerMesh.joinRoom(code);
+
+    const link = peerMesh.getShareLink(code);
+    navigator.clipboard.writeText(link);
+    setCopiedShareLink(true);
+    setTimeout(() => setCopiedShareLink(false), 2500);
+
+    if (peerMesh.isLocalhost()) {
+      alert(`Room Link Copied: ${link}\n\n⚠️ Note: You are currently on localhost. To connect a physical phone over the Internet, make sure you open the deployed public app URL on both devices!`);
+    }
+  };
+
   return (
     <header
       className={
@@ -65,7 +110,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           : 'neo-glass-panel border-b border-white/80 text-slate-800 shadow-[0_4px_20px_rgba(180,195,225,0.14)] select-none z-30 relative'
       }
     >
-      {/* Android Top Tactical System Bar */}
+      {/* Top System Bar */}
       <div
         className={
           isDark
@@ -84,41 +129,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
-          {/* Engine status indicator */}
-          <div
-            className="flex items-center space-x-1"
-            title={
-              hasGeminiKey && isOnline
-                ? 'Gemini 3.8 Live & Transcribe Active'
-                : 'Offline Local Lexicon & Dialect Engine Active'
-            }
-          >
-            <Cpu
-              className={`w-3 h-3 ${
-                hasGeminiKey && isOnline
-                  ? isDark ? 'text-emerald-400' : 'text-purple-600'
-                  : isDark ? 'text-amber-400' : 'text-amber-600'
-              }`}
-            />
-            <span
-              className={`text-[10px] uppercase font-bold tracking-wider ${
-                hasGeminiKey && isOnline
-                  ? isDark ? 'text-emerald-400' : 'text-purple-600 font-semibold'
-                  : isDark ? 'text-amber-400' : 'text-amber-600 font-semibold'
-              }`}
-            >
-              {hasGeminiKey && isOnline ? 'Gemini AI' : 'Offline Mesh'}
-            </span>
-          </div>
-
-          <span className={isDark ? 'text-zinc-700' : 'text-slate-300'}>·</span>
-
-          {/* Network Connection */}
+          {/* Internet / Cloud status */}
           <div className="flex items-center space-x-1">
             {isOnline ? (
-              <Wifi className={`w-3 h-3 ${isDark ? 'text-emerald-400' : 'text-blue-500'}`} />
+              <Wifi className={`w-3.5 h-3.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
             ) : (
-              <WifiOff className={`w-3 h-3 ${isDark ? 'text-amber-500' : 'text-rose-500'}`} />
+              <WifiOff className="w-3.5 h-3.5 text-amber-500" />
             )}
             <span className={`text-[10px] ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
               {isOnline ? 'Online' : 'Offline'}
@@ -127,23 +143,25 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
           <span className={isDark ? 'text-zinc-700' : 'text-slate-300'}>·</span>
 
-          {/* Battery */}
-          <div className={`flex items-center space-x-0.5 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
-            <Battery className={`w-3.5 h-3.5 ${isDark ? 'text-zinc-300' : 'text-slate-600'}`} />
-            <span className="text-[10px]">{localNode.batteryLevel || 94}%</span>
-          </div>
+          {/* AI Server Key indicator */}
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+            hasGeminiKey ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/60' : 'bg-amber-950/80 text-amber-300 border border-amber-600/60'
+          }`}>
+            {hasGeminiKey ? 'Gemini AI' : 'Offline Lexicon'}
+          </span>
         </div>
       </div>
 
-      {/* Main Tactical Radio Frequency Bar */}
+      {/* Main Tactical Intercom Frequency & Room Bar */}
       <div
         className={
           isDark
-            ? 'flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950'
+            ? 'flex items-center justify-between px-3 py-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950'
             : 'flex items-center justify-between px-3 py-2 bg-white/50 backdrop-blur-md'
         }
       >
-        <div className="flex items-center space-x-2.5">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+          {/* Virtual Channel / Talkgroup Selector */}
           <div className="relative">
             <button
               onClick={() => setShowChannelDropdown(!showChannelDropdown)}
@@ -170,18 +188,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               />
               <div>
                 <div
-                  className={`text-[11px] font-bold tracking-wider leading-none flex items-center gap-1 ${
+                  className={`text-[10px] font-bold tracking-wider leading-none flex items-center gap-1 ${
                     isDark ? 'text-zinc-400' : 'text-slate-500'
                   }`}
                 >
-                  <span>CH-{activeChannelConfig.channel}</span>
-                  <span className={isDark ? 'text-zinc-500' : 'text-slate-400'}>·</span>
-                  <span className={isDark ? 'text-amber-400' : 'text-pink-600 font-bold'}>
-                    {activeChannelConfig.frequency}
-                  </span>
+                  <span>TALKGROUP CH-{activeChannelConfig.channel}</span>
                 </div>
                 <div
-                  className={`text-xs font-semibold truncate max-w-[150px] sm:max-w-[210px] ${
+                  className={`text-xs font-semibold truncate max-w-[130px] sm:max-w-[180px] ${
                     isDark ? '' : 'text-slate-800'
                   }`}
                 >
@@ -204,7 +218,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     isDark ? 'text-zinc-400 border-zinc-800' : 'text-slate-500 border-slate-200/60 font-semibold'
                   }`}
                 >
-                  Select Mesh Frequency
+                  Select Room Virtual Talkgroup
                 </div>
                 {RADIO_CHANNELS.map((ch) => (
                   <button
@@ -227,121 +241,205 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                           }`
                     }
                   >
-                    <div
-                      className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${
-                        ch.isEmergency
-                          ? 'bg-rose-500 animate-pulse'
-                          : isDark ? 'bg-emerald-400' : 'bg-gradient-to-br from-blue-400 to-purple-500'
-                      }`}
-                    />
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold">
-                          CH-{ch.channel}: {ch.frequency}
-                        </span>
-                        {ch.isEmergency && (
-                          <span
-                            className={`text-[10px] font-bold uppercase tracking-wider ${
-                              isDark ? 'text-red-400' : 'text-rose-600'
-                            }`}
-                          >
-                            SOS
-                          </span>
-                        )}
+                        <span className="font-bold">CH-{ch.channel}: {ch.name}</span>
                       </div>
-                      <div className={`text-[11px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-600 font-medium'}`}>
-                        {ch.name}
-                      </div>
-                      <div className={`text-[10px] line-clamp-1 ${isDark ? 'text-zinc-500' : 'text-slate-400'}`}>
-                        {ch.description}
-                      </div>
+                      <div className="text-[10px] opacity-75">{ch.description}</div>
                     </div>
                   </button>
                 ))}
               </div>
             )}
           </div>
+
+          {/* 4-digit Room Code & Real Room Status */}
+          <div className="flex items-center space-x-1.5">
+            <div className="flex items-center space-x-1">
+              <input
+                type="text"
+                maxLength={6}
+                placeholder="Room #"
+                value={roomCodeInput}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                  setRoomCodeInput(val);
+                  if (val.length >= 3) {
+                    peerMesh.joinRoom(val);
+                  }
+                }}
+                className={`w-20 px-2 py-1.5 text-xs font-mono rounded-lg border text-center outline-none transition-all ${
+                  isDark
+                    ? 'bg-zinc-900 border-zinc-700 text-zinc-200 focus:border-emerald-500'
+                    : 'bg-white/80 border-slate-300 text-slate-800 focus:border-purple-500 shadow-sm'
+                }`}
+              />
+              <button
+                onClick={() => {
+                  if (roomCodeInput.length >= 3) {
+                    peerMesh.joinRoom(roomCodeInput);
+                  } else {
+                    const code = Math.floor(1000 + Math.random() * 9000).toString();
+                    setRoomCodeInput(code);
+                    peerMesh.joinRoom(code);
+                  }
+                }}
+                className={`px-2 py-1.5 text-xs font-mono font-bold rounded-lg transition-all ${
+                  peerStatus === 'connected'
+                    ? isDark ? 'bg-emerald-950 text-emerald-300 border border-emerald-600' : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : isDark ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : 'bg-purple-100 text-purple-800 hover:bg-purple-200'
+                }`}
+                title="Join or Create Room"
+              >
+                {peerStatus === 'connected' ? 'Linked' : 'Join'}
+              </button>
+            </div>
+
+            {/* Share Link Button */}
+            <button
+              onClick={handleShareClick}
+              className={`p-1.5 rounded-lg border text-xs font-mono flex items-center gap-1 transition-all ${
+                copiedShareLink
+                  ? 'bg-emerald-500 text-white border-emerald-600'
+                  : isDark
+                  ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-750'
+                  : 'bg-white/80 border-slate-200 text-slate-700 hover:bg-white shadow-sm'
+              }`}
+              title="Copy Room Link to open on mobile phone"
+            >
+              {copiedShareLink ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span className="hidden md:inline">{copiedShareLink ? 'Copied!' : 'Share'}</span>
+            </button>
+
+            {/* Truthful Room Connection State Badge */}
+            {peerStatus === 'connected' && (
+              <span className={`px-2 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 shrink-0 ${
+                isDark ? 'bg-emerald-950/90 border border-emerald-600 text-emerald-300' : 'bg-emerald-50 border border-emerald-300 text-emerald-800'
+              }`}>
+                🟢 Linked to {peerCount} Peer [{peerMesh.getRoomCode() || roomCodeInput}]
+              </span>
+            )}
+            {peerStatus === 'waiting' && (
+              <span className={`px-2 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 shrink-0 ${
+                isDark ? 'bg-amber-950/80 border border-amber-600/80 text-amber-300 animate-pulse' : 'bg-amber-50 border border-amber-300 text-amber-800 animate-pulse'
+              }`}
+              title="Waiting for other phone or laptop to join this room code"
+              >
+                🟡 Waiting for Peer [{peerMesh.getRoomCode() || roomCodeInput}]
+              </span>
+            )}
+            {peerStatus === 'connecting' && (
+              <span className="px-2 py-1 rounded-full text-[10px] font-mono text-zinc-400 bg-zinc-800 animate-pulse">
+                ⏳ Connecting...
+              </span>
+            )}
+            {peerStatus === 'disconnected' && (
+              <span className={`px-2 py-1 rounded-full text-[10px] font-mono shrink-0 ${
+                isDark ? 'text-zinc-400 bg-zinc-850 border border-zinc-750' : 'text-slate-500 bg-slate-100 border border-slate-200'
+              }`}>
+                ⚪ No Room
+              </span>
+            )}
+            {peerStatus === 'error' && (
+              <span className="px-2 py-1 rounded-full text-[10px] font-mono text-red-300 bg-red-950/80 border border-red-500/80 shrink-0">
+                ⚠️ Room Disconnected
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Action icons right */}
-        <div className="flex items-center space-x-1.5">
-          {/* Settings / Language Pack Manager button */}
-          {onOpenSettings && (
+        {/* Right Action Icons: Guide, Diagnostics, Theme, Mute, Radar */}
+        <div className="flex items-center space-x-1.5 shrink-0">
+          {/* Onboarding Guide Button */}
+          <button
+            onClick={() => setShowOnboarding(true)}
+            className={`p-1.5 rounded-lg border transition-colors flex items-center gap-1 text-xs font-mono ${
+              isDark ? 'bg-zinc-850 border-zinc-750 text-purple-400 hover:bg-zinc-800' : 'bg-white border-slate-200 text-purple-700 shadow-xs'
+            }`}
+            title="Two-Device Connection Guide"
+          >
+            <HelpCircle className="w-4 h-4" />
+            <span className="hidden lg:inline">Guide</span>
+          </button>
+
+          {/* Voice Word Learning Button */}
+          {onOpenWordLearning && (
             <button
-              onClick={onOpenSettings}
-              className={
+              onClick={onOpenWordLearning}
+              className={`p-1.5 rounded-lg border transition-colors flex items-center gap-1 text-xs font-mono ${
                 isDark
-                  ? 'p-2 rounded-lg border bg-zinc-850 border-zinc-750 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 transition-colors'
-                  : 'neo-gel-button p-2 rounded-2xl text-purple-600 hover:text-purple-700 hover:scale-105 active:scale-95 transition-all shadow-sm'
-              }
-              title="Language Pack Manager & Offline TTS Settings"
-              aria-label="Settings and Language Packs"
+                  ? 'bg-purple-950/60 border-purple-800/80 text-purple-300 hover:bg-purple-900/60'
+                  : 'bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100 shadow-xs font-bold'
+              }`}
+              title="Interactive Voice Word Learning & Dialect Model"
             >
-              <Settings className="w-4 h-4" />
+              <Brain className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />
+              <span className="hidden lg:inline">Learn Word</span>
             </button>
           )}
 
-          {/* Light / Dark Mode Toggle Button */}
+          {/* Install PWA Button */}
+          <PWAInstallButton variant="compact" />
+
+          {/* Diagnostics Modal Button */}
+          <button
+            onClick={() => setShowDiagnostics(true)}
+            className={`p-1.5 rounded-lg border transition-colors flex items-center gap-1 text-xs font-mono ${
+              isDark ? 'bg-zinc-850 border-zinc-750 text-blue-400 hover:bg-zinc-800' : 'bg-white border-slate-200 text-blue-700 shadow-xs'
+            }`}
+            title="System & Health Diagnostics"
+          >
+            <Activity className="w-4 h-4" />
+            <span className="hidden lg:inline">Health</span>
+          </button>
+
+          {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
             className={
               isDark
-                ? 'p-2 rounded-lg border bg-zinc-850 border-zinc-750 text-amber-400 hover:bg-zinc-800 transition-colors'
-                : 'neo-gel-button p-2 rounded-2xl text-purple-600 hover:text-purple-700 hover:scale-105 active:scale-95 transition-all shadow-sm'
+                ? 'p-1.5 rounded-lg border bg-zinc-850 border-zinc-750 text-amber-400 hover:bg-zinc-800 transition-colors'
+                : 'neo-gel-button p-1.5 rounded-2xl text-purple-600 hover:text-purple-700 transition-all shadow-sm'
             }
-            title={isDark ? 'Switch to Neo-Glassmorphism Light Mode' : 'Switch to Tactical Dark Mode'}
-            aria-label="Toggle theme"
+            title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          {/* Mute/Sound toggle */}
+          {/* Speaker Mute/Unmute */}
           <button
             onClick={onToggleMute}
             className={
               isDark
-                ? `p-2 rounded-lg border transition-colors ${
+                ? `p-1.5 rounded-lg border transition-colors ${
                     isMuted
                       ? 'bg-red-950/40 border-red-800/50 text-red-400'
                       : 'bg-zinc-850 border-zinc-750 text-zinc-300 hover:bg-zinc-800'
                   }`
-                : `p-2 rounded-2xl transition-all neo-gel-button ${
+                : `p-1.5 rounded-2xl transition-all neo-gel-button ${
                     isMuted
                       ? 'bg-rose-50 text-rose-500 border-rose-200'
                       : 'text-slate-600 hover:text-slate-800'
                   }`
             }
-            title={isMuted ? 'Radio Speaker Muted' : 'Radio Speaker Active'}
+            title={isMuted ? 'Speaker Muted' : 'Speaker Active'}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-
-          {/* Mesh Radar quick trigger */}
-          <button
-            onClick={onOpenRadar}
-            className={
-              isDark
-                ? 'flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 hover:bg-emerald-900/50 transition-colors text-xs font-mono'
-                : 'flex items-center space-x-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/15 border border-purple-200/80 text-purple-700 hover:shadow-md transition-all text-xs font-mono neo-gel-button'
-            }
-            title="Open Local Mesh Peer Radar"
-          >
-            <span className="relative flex h-2 w-2">
-              <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  isDark ? 'bg-emerald-400' : 'bg-pink-500'
-                }`}
-              ></span>
-              <span
-                className={`relative inline-flex rounded-full h-2 w-2 ${
-                  isDark ? 'bg-emerald-500' : 'bg-purple-600'
-                }`}
-              ></span>
-            </span>
-            <span className="font-semibold hidden sm:inline">RADAR</span>
-          </button>
         </div>
       </div>
+
+      {/* Diagnostics Modal */}
+      <DiagnosticsModal
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
+
+      {/* Onboarding Guide Modal */}
+      <OnboardingModal
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+      />
     </header>
   );
 };

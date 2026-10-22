@@ -13,6 +13,13 @@ import {
   ChevronRight,
   Database,
   Radio,
+  Activity,
+  Mic,
+  Gauge,
+  User,
+  Shield,
+  Flame,
+  Zap,
 } from 'lucide-react';
 import {
   languagePackService,
@@ -20,7 +27,7 @@ import {
   PackPreferences,
 } from '../services/languagePackService';
 import { useTheme } from '../context/ThemeContext';
-import { audioEngine } from '../services/audioEngine';
+import { audioEngine, OFFLINE_VOICE_PERSONAS } from '../services/audioEngine';
 
 interface LanguagePackManagerModalProps {
   isOpen: boolean;
@@ -34,14 +41,17 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
   const { isDark } = useTheme();
   const [packs, setPacks] = useState<LanguagePack[]>([]);
   const [prefs, setPrefs] = useState<PackPreferences>(languagePackService.getPreferences());
-  const [activeTab, setActiveTab] = useState<'packs' | 'settings'>('packs');
+  const [activeTab, setActiveTab] = useState<'packs' | 'audio-settings'>('packs');
   const [playingPackId, setPlayingPackId] = useState<string | null>(null);
+  const [playingPersonaId, setPlayingPersonaId] = useState<string | null>(null);
+  const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
     const unsubscribe = languagePackService.subscribe((updatedPacks, updatedPrefs) => {
       setPacks(updatedPacks);
       setPrefs(updatedPrefs);
     });
+    setSystemVoices(audioEngine.getAvailableSystemVoices());
     return () => unsubscribe();
   }, []);
 
@@ -58,6 +68,25 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
       await languagePackService.playPackSample(packId);
     } finally {
       setPlayingPackId(null);
+    }
+  };
+
+  const handleTestPersonaVoice = async (personaId: string) => {
+    setPlayingPersonaId(personaId);
+    audioEngine.triggerHaptic([30, 30]);
+    languagePackService.updatePreferences({ selectedVoicePersona: personaId });
+    audioEngine.setSpeechPreferences({ selectedVoicePersona: personaId });
+
+    try {
+      await audioEngine.speak(
+        'नमस्ते! भाषासेतु ऑफ़लाइन वाणी परीक्षण। BhashaSetu offline speech persona active.',
+        'hi',
+        {
+          onEnd: () => setPlayingPersonaId(null),
+        }
+      );
+    } catch {
+      setPlayingPersonaId(null);
     }
   };
 
@@ -162,10 +191,10 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
           <button
             onClick={() => {
               audioEngine.triggerHaptic(20);
-              setActiveTab('settings');
+              setActiveTab('audio-settings');
             }}
             className={`py-2.5 px-3 text-xs font-mono font-bold flex items-center gap-1.5 border-b-2 transition-all ${
-              activeTab === 'settings'
+              activeTab === 'audio-settings'
                 ? isDark
                   ? 'border-emerald-400 text-emerald-400'
                   : 'border-purple-600 text-purple-700'
@@ -174,14 +203,15 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Voice Audio Settings</span>
+            <Mic className="w-3.5 h-3.5" />
+            <span>Audio Settings</span>
           </button>
+
         </div>
 
         {/* Content Body */}
         <div className="p-4 overflow-y-auto space-y-4 flex-1">
-          {activeTab === 'packs' ? (
+          {activeTab === 'packs' && (
             <>
               {/* Storage & Quick Action Header */}
               <div
@@ -435,9 +465,190 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                 })}
               </div>
             </>
-          ) : (
-            /* Settings & Voice Audio Fine-Tuning Tab */
+          )}
+
+          {activeTab === 'audio-settings' && (
+            /* Audio & Voice Settings Fine-Tuning Tab */
             <div className="space-y-4">
+              {/* Microphone Sensitivity Threshold Control for WalkieTalkieView PTT auto-triggering */}
+              <div
+                className={
+                  isDark
+                    ? 'p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800 space-y-3.5'
+                    : 'p-4 rounded-3xl neo-glass-panel border-white/95 space-y-3.5 shadow-xs'
+                }
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`p-2 rounded-2xl ${
+                        isDark
+                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                          : 'bg-purple-100 text-purple-700 border border-purple-200'
+                      }`}
+                    >
+                      <Mic className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4
+                        className={`text-xs font-bold font-mono ${
+                          isDark ? 'text-zinc-100' : 'text-slate-900'
+                        }`}
+                      >
+                        Microphone Sensitivity Threshold (PTT Auto-Trigger)
+                      </h4>
+                      <p
+                        className={`text-[11px] font-mono ${
+                          isDark ? 'text-zinc-400' : 'text-slate-500'
+                        }`}
+                      >
+                        Adjust speech activation level for WalkieTalkieView hands-free auto-recording
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`text-[11px] font-mono font-bold px-2.5 py-1 rounded-full border shrink-0 ${
+                      (prefs.vadSensitivityThreshold ?? 24) < 18
+                        ? isDark
+                          ? 'bg-amber-950/80 text-amber-300 border-amber-800/80'
+                          : 'bg-amber-100 text-amber-800 border-amber-200'
+                        : (prefs.vadSensitivityThreshold ?? 24) > 32
+                        ? isDark
+                          ? 'bg-blue-950/80 text-blue-300 border-blue-800/80'
+                          : 'bg-blue-100 text-blue-800 border-blue-200'
+                        : isDark
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
+                        : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                    }`}
+                  >
+                    {prefs.vadSensitivityThreshold ?? 24} dB
+                  </span>
+                </div>
+
+                {/* Slider */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-[11px] font-mono">
+                    <span className={isDark ? 'text-zinc-400' : 'text-slate-600'}>
+                      5 dB (High - Whispers)
+                    </span>
+                    <span className={`font-bold ${isDark ? 'text-emerald-400' : 'text-purple-700'}`}>
+                      {(prefs.vadSensitivityThreshold ?? 24) < 18
+                        ? 'High Sensitivity (Quiet room / Soft speech)'
+                        : (prefs.vadSensitivityThreshold ?? 24) > 32
+                        ? 'Low Sensitivity (Noisy background / Highway)'
+                        : 'Balanced Default (Indoor / Outdoor)'}
+                    </span>
+                    <span className={isDark ? 'text-zinc-400' : 'text-slate-600'}>
+                      50 dB (Low - Loud Noise)
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="5"
+                    max="50"
+                    step="1"
+                    value={prefs.vadSensitivityThreshold ?? 24}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      languagePackService.updatePreferences({ vadSensitivityThreshold: val });
+                    }}
+                    className="w-full accent-purple-600 cursor-pointer"
+                  />
+                </div>
+
+                {/* Explanation Banner */}
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-mono flex items-center gap-2 ${
+                    isDark
+                      ? 'bg-zinc-900/90 border border-zinc-800 text-zinc-300'
+                      : 'bg-slate-50 border border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <Gauge className="w-4 h-4 shrink-0 text-purple-600 dark:text-emerald-400" />
+                  <span className="text-[11px] leading-snug">
+                    When set to <strong>{prefs.vadSensitivityThreshold ?? 24} dB</strong>, WalkieTalkieView auto-triggers recording when incoming mic audio exceeds level {prefs.vadSensitivityThreshold ?? 24}. Silence cutoff sets at level {Math.max(4, Math.round((prefs.vadSensitivityThreshold ?? 24) * 0.4))}.
+                  </span>
+                </div>
+              </div>
+
+              {/* Credit-based Cloud AI Features Group */}
+              <div
+                className={
+                  isDark
+                    ? 'p-4 rounded-2xl bg-zinc-950/80 border border-purple-900/50 space-y-3.5'
+                    : 'p-4 rounded-3xl bg-gradient-to-r from-purple-50/90 to-pink-50/80 border border-purple-200 space-y-3.5 shadow-xs'
+                }
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />
+                    <h4
+                      className={`text-xs font-bold font-mono uppercase tracking-wider ${
+                        isDark ? 'text-purple-300' : 'text-purple-950'
+                      }`}
+                    >
+                      Credit-Based Cloud AI Features
+                    </h4>
+                  </div>
+                  <span
+                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                      isDark ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-purple-100 text-purple-900 border border-purple-300'
+                    }`}
+                  >
+                    ⚡ Quota Managed
+                  </span>
+                </div>
+
+                <p className={`text-[11px] font-mono leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-700 font-medium'}`}>
+                  Toggles in this section control cloud-based AI services that consume daily credit quota. Toggling these OFF saves API credits while leaving all free offline features unaffected.
+                </p>
+
+                {/* Cloud Gemini Neural Translation Toggle */}
+                <div className="border-t border-purple-800/30 dark:border-purple-800/60 pt-3 flex items-center justify-between">
+                  <div>
+                    <h5 className={`text-xs font-bold font-mono ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>
+                      Cloud Gemini High-Precision Translation
+                    </h5>
+                    <p className={`text-[11px] font-mono ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                      Uses Gemini cloud neural model. Toggle OFF to save credits and force local offline phrasebook.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!prefs.preferOfflineVoice}
+                    onChange={(e) =>
+                      languagePackService.updatePreferences({ preferOfflineVoice: !e.target.checked })
+                    }
+                    className="w-4 h-4 accent-purple-600 rounded cursor-pointer shrink-0"
+                  />
+                </div>
+
+                {/* Auto-Download Emergency Phrases */}
+                <div className="border-t border-purple-800/30 dark:border-purple-800/60 pt-3 flex items-center justify-between">
+                  <div>
+                    <h5 className={`text-xs font-bold font-mono ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>
+                      Cloud Generative Voice Synthesis (Proxy TTS)
+                    </h5>
+                    <p className={`text-[11px] font-mono ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                      Generates high-definition cloud voice. Toggle OFF to route to device built-in TTS.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.autoDownloadEmergencyPhrases}
+                    onChange={(e) =>
+                      languagePackService.updatePreferences({
+                        autoDownloadEmergencyPhrases: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 accent-purple-600 rounded cursor-pointer shrink-0"
+                  />
+                </div>
+              </div>
+
+              {/* Free Offline Local Features Group */}
               <div
                 className={
                   isDark
@@ -446,30 +657,23 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                 }
               >
                 <div className="flex items-center justify-between">
-                  <div>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                     <h4
-                      className={`text-xs font-bold font-mono ${
-                        isDark ? 'text-zinc-100' : 'text-slate-900'
+                      className={`text-xs font-bold font-mono uppercase tracking-wider ${
+                        isDark ? 'text-emerald-400' : 'text-emerald-900'
                       }`}
                     >
-                      Prefer Offline Speech Synthesis
+                      Free &amp; Offline Features (Always Active &amp; Unaffected)
                     </h4>
-                    <p
-                      className={`text-[11px] font-mono ${
-                        isDark ? 'text-zinc-400' : 'text-slate-500'
-                      }`}
-                    >
-                      Prioritize local downloaded packs for instantaneous voice playback
-                    </p>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={prefs.preferOfflineVoice}
-                    onChange={(e) =>
-                      languagePackService.updatePreferences({ preferOfflineVoice: e.target.checked })
-                    }
-                    className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
-                  />
+                  <span
+                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                      isDark ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                    }`}
+                  >
+                    🆓 100% Free
+                  </span>
                 </div>
 
                 <div className="border-t border-zinc-800/40 dark:border-zinc-800/80 pt-3">
@@ -483,7 +687,7 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                     </label>
                     <span
                       className={`text-[10px] font-mono ${
-                        isDark ? 'text-zinc-400' : 'text-slate-500'
+                        isDark ? 'text-zinc-400' : 'text-slate-600 font-medium'
                       }`}
                     >
                       {prefs.speechRate < 0.95
@@ -517,7 +721,7 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                     </label>
                     <span
                       className={`text-[10px] font-mono ${
-                        isDark ? 'text-zinc-400' : 'text-slate-500'
+                        isDark ? 'text-zinc-400' : 'text-slate-600 font-medium'
                       }`}
                     >
                       {prefs.speechPitch === 1.0 ? 'Default Accent' : 'Tuned Modulation'}
@@ -543,40 +747,11 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                         isDark ? 'text-zinc-100' : 'text-slate-900'
                       }`}
                     >
-                      Auto-Preload Emergency Phrases
-                    </h4>
-                    <p
-                      className={`text-[11px] font-mono ${
-                        isDark ? 'text-zinc-400' : 'text-slate-500'
-                      }`}
-                    >
-                      Keeps critical medical, disaster, and rescue audio ready instantly
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={prefs.autoDownloadEmergencyPhrases}
-                    onChange={(e) =>
-                      languagePackService.updatePreferences({
-                        autoDownloadEmergencyPhrases: e.target.checked,
-                      })
-                    }
-                    className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
-                  />
-                </div>
-
-                <div className="border-t border-zinc-800/40 dark:border-zinc-800/80 pt-3 flex items-center justify-between">
-                  <div>
-                    <h4
-                      className={`text-xs font-bold font-mono ${
-                        isDark ? 'text-zinc-100' : 'text-slate-900'
-                      }`}
-                    >
                       Tactile Haptic on Speech Finish
                     </h4>
                     <p
                       className={`text-[11px] font-mono ${
-                        isDark ? 'text-zinc-400' : 'text-slate-500'
+                        isDark ? 'text-zinc-400' : 'text-slate-600 font-medium'
                       }`}
                     >
                       Vibrates mobile device when speech synthesis finishes reading
@@ -592,6 +767,276 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
                     }
                     className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
                   />
+                </div>
+
+                {/* Field Audio DSP Noise Gate & Wind Suppression Panel */}
+                <div
+                  className={
+                    isDark
+                      ? 'p-3.5 rounded-2xl bg-zinc-900/90 border border-emerald-900/60 space-y-3'
+                      : 'p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50/80 to-teal-50/80 border border-emerald-200 space-y-3'
+                  }
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <div>
+                        <h4
+                          className={`text-xs font-bold font-mono uppercase tracking-wider ${
+                            isDark ? 'text-emerald-300' : 'text-emerald-950'
+                          }`}
+                        >
+                          Field Audio DSP Noise Gate &amp; Wind Suppression
+                        </h4>
+                        <p className={`text-[10px] font-mono ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                          Web Audio DSP real-time acoustic filter graph for outdoor &amp; highway intercoms
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                        prefs.isNoiseGateEnabled
+                          ? isDark ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                          : isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {prefs.isNoiseGateEnabled ? '⚡ DSP Active' : 'Off'}
+                    </span>
+                  </div>
+
+                  {/* Noise Gate Toggle */}
+                  <div className="border-t border-emerald-800/30 dark:border-emerald-800/60 pt-2.5 flex items-center justify-between">
+                    <div>
+                      <h5 className={`text-xs font-bold font-mono ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>
+                        Adaptive Noise Gate (Squelch)
+                      </h5>
+                      <p className={`text-[11px] font-mono ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                        Mutes sub-threshold background noise when you stop speaking
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={prefs.isNoiseGateEnabled ?? true}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        languagePackService.updatePreferences({ isNoiseGateEnabled: val });
+                        audioEngine.setSpeechPreferences({ isNoiseGateEnabled: val });
+                      }}
+                      className="w-4 h-4 accent-emerald-600 rounded cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {/* Noise Gate Squelch Threshold Slider */}
+                  {prefs.isNoiseGateEnabled && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center justify-between text-xs font-mono font-bold">
+                        <label className={isDark ? 'text-zinc-200' : 'text-slate-800'}>
+                          Squelch Gate Threshold: {prefs.noiseGateThresholdDb ?? -36} dB
+                        </label>
+                        <span className={`text-[10px] font-mono ${isDark ? 'text-emerald-400' : 'text-emerald-800'}`}>
+                          {(prefs.noiseGateThresholdDb ?? -36) < -40
+                            ? 'Quiet Room'
+                            : (prefs.noiseGateThresholdDb ?? -36) > -28
+                            ? 'Highway Vehicle'
+                            : 'Standard Field Intercom'}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-54"
+                        max="-18"
+                        step="2"
+                        value={prefs.noiseGateThresholdDb ?? -36}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          languagePackService.updatePreferences({ noiseGateThresholdDb: val });
+                          audioEngine.setSpeechPreferences({ noiseGateThresholdDb: val });
+                        }}
+                        className="w-full accent-emerald-600 cursor-pointer"
+                      />
+                    </div>
+                  )}
+
+                  {/* Wind Suppression Cutoff Frequency Slider */}
+                  <div className="border-t border-emerald-800/30 dark:border-emerald-800/60 pt-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-xs font-mono font-bold">
+                      <label className={isDark ? 'text-zinc-200' : 'text-slate-800'}>
+                        Wind Rumble Highpass Cutoff: {prefs.windFilterCutoffHz ?? 120} Hz
+                      </label>
+                      <span className={`text-[10px] font-mono ${isDark ? 'text-emerald-400' : 'text-emerald-800'}`}>
+                        {(prefs.windFilterCutoffHz ?? 120) > 150 ? 'Strong Ridge Wind' : 'Light Breeze Filter'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="60"
+                      max="240"
+                      step="10"
+                      value={prefs.windFilterCutoffHz ?? 120}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        languagePackService.updatePreferences({ windFilterCutoffHz: val });
+                        audioEngine.setSpeechPreferences({ windFilterCutoffHz: val });
+                      }}
+                      className="w-full accent-emerald-600 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Human Vocal Band Enhancer Toggle */}
+                  <div className="border-t border-emerald-800/30 dark:border-emerald-800/60 pt-2.5 flex items-center justify-between">
+                    <div>
+                      <h5 className={`text-xs font-bold font-mono ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>
+                        1.8kHz Vocal Band Presence Boost
+                      </h5>
+                      <p className={`text-[11px] font-mono ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                        Amplifies human speech clarity frequencies for high-noise transit corridors
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={prefs.vocalBandEnhance ?? true}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        languagePackService.updatePreferences({ vocalBandEnhance: val });
+                        audioEngine.setSpeechPreferences({ vocalBandEnhance: val });
+                      }}
+                      className="w-4 h-4 accent-emerald-600 rounded cursor-pointer shrink-0"
+                    />
+                  </div>
+                </div>
+
+                {/* Synthesized Offline Voice Personas Selection */}
+                <div className="border-t border-zinc-800/40 dark:border-zinc-800/80 pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className={`text-xs font-bold font-mono uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-zinc-200' : 'text-slate-900'}`}>
+                        <Volume2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        Synthesized Offline Voice Personas
+                      </h4>
+                      <p className={`text-[11px] font-mono mt-0.5 ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                        Select an offline audio playback persona profile for local speech synthesis
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-purple-100 text-purple-900 border border-purple-300'}`}>
+                      {OFFLINE_VOICE_PERSONAS.find((p) => p.id === (prefs.selectedVoicePersona || 'vani_female'))?.name || 'Vani Female'} Active
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                    {OFFLINE_VOICE_PERSONAS.map((persona) => {
+                      const isSelected = (prefs.selectedVoicePersona || 'vani_female') === persona.id;
+                      const isPlayingThis = playingPersonaId === persona.id;
+
+                      return (
+                        <div
+                          key={persona.id}
+                          onClick={() => {
+                            languagePackService.updatePreferences({ selectedVoicePersona: persona.id });
+                            audioEngine.setSpeechPreferences({ selectedVoicePersona: persona.id });
+                            audioEngine.triggerHaptic([20, 30]);
+                          }}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                            isSelected
+                              ? isDark
+                                ? 'bg-purple-950/60 border-purple-500 text-purple-200 ring-1 ring-purple-500/50 shadow-sm'
+                                : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-400 text-purple-950 shadow-sm'
+                              : isDark
+                              ? 'bg-zinc-900/80 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:bg-zinc-850'
+                              : 'bg-white/90 border-slate-200 hover:border-slate-300 text-slate-800 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-xs font-bold font-mono ${isSelected ? 'text-purple-700 dark:text-purple-300' : ''}`}>
+                                  {persona.name}
+                                </span>
+                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold ${
+                                  isSelected 
+                                    ? 'bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-200' 
+                                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'
+                                }`}>
+                                  {persona.gender}
+                                </span>
+                              </div>
+                              <p className={`text-[10px] font-mono mt-0.5 font-sans font-medium ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                                {persona.nativeTitle}
+                              </p>
+                            </div>
+                            {isSelected && (
+                              <CheckCircle2 className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                            )}
+                          </div>
+
+                          <p className={`text-[10px] font-mono leading-tight mt-2 ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                            {persona.description}
+                          </p>
+
+                          <div className="flex items-center justify-between mt-3 pt-2 border-t border-dashed border-zinc-300 dark:border-zinc-800">
+                            <span className="text-[9px] font-mono text-purple-600 dark:text-purple-400 font-semibold">
+                              🏷️ {persona.tag}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTestPersonaVoice(persona.id);
+                              }}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 transition-all ${
+                                isPlayingThis
+                                  ? 'bg-purple-600 text-white animate-pulse'
+                                  : isDark
+                                  ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                                  : 'bg-purple-100 hover:bg-purple-200 text-purple-900'
+                              }`}
+                            >
+                              <Volume2 className="w-3 h-3" />
+                              {isPlayingThis ? 'Playing...' : '🔊 Sample'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Device System TTS Voice Override */}
+                <div className="border-t border-zinc-800/40 dark:border-zinc-800/80 pt-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className={`text-xs font-mono font-bold ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
+                      Device System TTS Voice Override
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setSystemVoices(audioEngine.getAvailableSystemVoices())}
+                      className={`text-[10px] font-mono flex items-center gap-1 ${isDark ? 'text-purple-400 hover:text-purple-300' : 'text-purple-700 hover:text-purple-900'}`}
+                    >
+                      <RefreshCw className="w-3 h-3" /> Reload Device Voices ({systemVoices.length})
+                    </button>
+                  </div>
+                  <select
+                    value={prefs.customSystemVoiceName || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      languagePackService.updatePreferences({ customSystemVoiceName: val });
+                      audioEngine.setSpeechPreferences({ customSystemVoiceName: val });
+                    }}
+                    className={`w-full p-2 rounded-xl text-xs font-mono border transition-all ${
+                      isDark
+                        ? 'bg-zinc-900 border-zinc-800 text-zinc-200 focus:border-purple-500'
+                        : 'bg-white border-slate-300 text-slate-800 focus:border-purple-500'
+                    }`}
+                  >
+                    <option value="">✨ Auto-Select Optimal Voice (Recommended)</option>
+                    {systemVoices.map((voice) => (
+                      <option key={voice.name} value={voice.name}>
+                        {voice.name} ({voice.lang}) {voice.default ? '— [Default]' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className={`text-[10px] font-mono mt-1 ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                    Selecting a specific device voice forces offline audio synthesis to use that browser/operating system TTS engine.
+                  </p>
                 </div>
               </div>
 
@@ -629,7 +1074,7 @@ export const LanguagePackManagerModal: React.FC<LanguagePackManagerModalProps> =
               isDark ? 'text-zinc-400' : 'text-slate-500'
             }`}
           >
-            Offline Voice Engine: Ready
+            Offline Speech Engine: Active
           </span>
 
           <button

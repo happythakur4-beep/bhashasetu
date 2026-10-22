@@ -1,11 +1,11 @@
 import { LanguageCode, TranslationResult } from '../types';
 import {
   findInOfflinePhrasebook,
-  applyMandaliDialectRules,
   transliterateDevanagariToPhonetic,
   transliterateOdiaToPhonetic,
 } from './languageRegistry';
 import { audioEngine } from './audioEngine';
+import { customVocabularyService } from './customVocabularyService';
 
 class TranslatorService {
   private isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
@@ -50,20 +50,62 @@ class TranslatorService {
     text: string,
     sourceLang: LanguageCode,
     targetLang: LanguageCode,
-    options?: { forceOffline?: boolean; context?: string; audioBase64?: string }
+    options?: { forceOffline?: boolean; context?: string; audioBase64?: string; includeTTS?: boolean }
   ): Promise<TranslationResult> {
     let trimmed = text.trim();
 
-    // If audio is provided and online, use gemini-3.5-transcribe for superior transcription accuracy
-    if (options?.audioBase64 && this.isOnline && this.hasServerGemini && !options.forceOffline) {
-      try {
-        const transcribeResult = await audioEngine.transcribeAudio(options.audioBase64, sourceLang);
-        if (transcribeResult && transcribeResult.transcript) {
-          trimmed = transcribeResult.transcript;
-        }
-      } catch (e) {
-        console.warn('Gemini 3.5 Transcribe fallback to local transcript:', e);
+    // If recorded microphone audio is provided and SpeechRecognition didn't transcribe it,
+    // transcribe using server Gemini model
+    if (options?.audioBase64 && !trimmed && !options.forceOffline) {
+      if (!this.isOnline) {
+        throw new Error(
+          "नेटवर्क कनेक्शन त्रुटि (Network Offline): रिकॉर्ड किए गए ऑडियो को ट्रांसक्राइब करने के लिए इंटरनेट कनेक्शन आवश्यक है। कृपया इंटरनेट चालू करें या नीचे टेक्स्ट बॉक्स से टाइप करें।"
+        );
       }
+      if (!this.hasServerGemini) {
+        throw new Error(
+          "सर्वर ट्रांसक्रिप्शन अनुपलब्ध (Server Transcription Unavailable): जेमिनी API Key कॉन्फ़िगर नहीं है। कृपया व्यक्तिगत GEMINI_API_KEY सेट करें या नीचे दिए गए शब्दकोश के वाक्यों का उपयोग करें।"
+        );
+      }
+
+      const transcribeResult = await audioEngine.transcribeAudio(options.audioBase64, sourceLang);
+      if (transcribeResult.success && transcribeResult.transcript) {
+        trimmed = transcribeResult.transcript.trim();
+      } else if (
+        transcribeResult.isQuota ||
+        transcribeResult.code === 'QUOTA_EXCEEDED' ||
+        transcribeResult.error?.includes('429') ||
+        transcribeResult.error?.includes('quota') ||
+        transcribeResult.error?.includes('Quota') ||
+        transcribeResult.error?.includes('QUOTA_EXCEEDED') ||
+        transcribeResult.error?.includes('rate limit')
+      ) {
+        throw new Error(
+          "सर्वर जेमिनी ट्रांसक्रिप्शन कोटा समाप्त (Gemini Quota 429 Exhausted): दैनिक सीमा पूरी हो गई है। कृपया कोटा रीसेट होने की प्रतीक्षा करें, व्यक्तिगत API Key कॉन्फ़िगर करें, या ऑफ़लाइन शब्दकोश का उपयोग करें।"
+        );
+      } else if (
+        transcribeResult.code === 'NETWORK_ERROR' ||
+        transcribeResult.code === 'TIMEOUT' ||
+        transcribeResult.error?.includes('network') ||
+        transcribeResult.error?.includes('Network') ||
+        transcribeResult.error?.includes('fetch') ||
+        transcribeResult.error?.includes('timed out')
+      ) {
+        throw new Error(
+          `नेटवर्क कनेक्शन त्रुटि (Network Error): ${transcribeResult.error || 'सर्वर ट्रांसक्रिप्शन से संपर्क नहीं हो सका।'} कृपया इंटरनेट जांचें या व्यक्तिगत API Key कॉन्फ़िगर करें।`
+        );
+      } else if (transcribeResult.error) {
+        throw new Error(transcribeResult.error);
+      }
+    }
+
+    if (!trimmed) {
+      if (options?.audioBase64) {
+        throw new Error(
+          'ऑडियो में कोई स्पष्ट आवाज़ नहीं मिली (No Audible Speech Detected in Recording): रिकॉर्ड किए गए ऑडियो में आवाज़ बहुत धीमी या शांत थी। कृपया माइक्रोफ़ोन के करीब साफ़ आवाज़ में बोलें या नीचे टेक्स्ट बॉक्स से टाइप करें।'
+        );
+      }
+      throw new Error('No speech or text provided for translation.');
     }
 
     const id = `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -90,11 +132,11 @@ class TranslatorService {
       };
     }
 
-    // 1. Try Gemini Online Neural Translation if online and not forced offline
-    if (this.isOnline && this.hasServerGemini && !options?.forceOffline) {
+    // 1. Try Gemini Online Neural Translation with server TTS
+    if (this.isOnline && !options?.forceOffline) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2200); // 2.2s snappy voice radio timeout
+        const timeout = setTimeout(() => controller.abort(), 14000); // 14s cancellable timeout
 
         const res = await fetch('/api/translate', {
           method: 'POST',
@@ -103,7 +145,8 @@ class TranslatorService {
             text: trimmed,
             sourceLang,
             targetLang,
-            context: options?.context || 'Voice radio translation between Indian states',
+            context: options?.context || 'Interstate voice intercom between Indian states',
+            includeTTS: options?.includeTTS ?? true,
           }),
           signal: controller.signal,
         });
@@ -113,28 +156,77 @@ class TranslatorService {
           const json = await res.json();
           if (json.success && json.data) {
             const isOfflineResult = Boolean(json.isOffline || json.data.isOffline);
+            const rawTranslated = json.data.translatedText || trimmed;
+            const { text: customAppliedText, appliedWords } = customVocabularyService.applyLearnedVocabulary(
+              rawTranslated,
+              sourceLang,
+              targetLang
+            );
+            const notes = appliedWords.length > 0
+              ? `${json.data.dialectNotes || ''} (Learned Vocab Applied: ${appliedWords.map(w => w.sourceWord).join(', ')})`
+              : json.data.dialectNotes;
+
             return {
               id,
               originalText: trimmed,
-              translatedText: json.data.translatedText || trimmed,
-              phoneticText: json.data.phoneticText || json.data.translatedText || trimmed,
+              translatedText: customAppliedText,
+              phoneticText: json.data.phoneticText || customAppliedText,
               sourceLang,
               targetLang,
               isOffline: isOfflineResult,
               engine: isOfflineResult ? 'offline-lexicon' : 'gemini-neural',
-              confidence: json.data.confidence || 0.95,
-              dialectNotes: json.data.dialectNotes || undefined,
+              confidence: json.data.confidence ?? (isOfflineResult ? 0.6 : 0.95),
+              dialectNotes: notes || undefined,
+              audioBase64: json.data.audioBase64 || undefined,
               timestamp: Date.now(),
             };
           }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          if (res.status === 429 || errData.code === 'QUOTA_EXCEEDED') {
+            const phraseMatch = findInOfflinePhrasebook(trimmed, sourceLang, targetLang);
+            if (phraseMatch) {
+              return {
+                id,
+                originalText: trimmed,
+                translatedText: phraseMatch.text,
+                phoneticText: phraseMatch.phonetic,
+                sourceLang,
+                targetLang,
+                isOffline: true,
+                engine: 'offline-lexicon',
+                confidence: 1.0,
+                dialectNotes: 'Gemini Quota 429 reached. Matched from curated offline interstate phrasebook',
+                timestamp: Date.now(),
+              };
+            }
+            throw new Error(
+              "सर्वर जेमिनी ट्रांसलेशन दैनिक कोटा समाप्त (Gemini Quota 429 Exhausted): दैनिक सीमा पूरी हो गई है। कृपया कोटा रीसेट होने की प्रतीक्षा करें, व्यक्तिगत API Key कॉन्फ़िगर करें, या ऑफ़लाइन शब्दकोश का उपयोग करें।"
+            );
+          } else {
+            throw new Error(errData.error || `Translation request failed with status ${res.status}`);
+          }
         }
-      } catch {
-        // Seamless fallback to offline engine below
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (
+          msg.includes('Quota') ||
+          msg.includes('429') ||
+          msg.includes('कोटा समाप्त') ||
+          msg.includes('Network') ||
+          msg.includes('नेटवर्क') ||
+          msg.includes('Failed to fetch') ||
+          err?.name === 'TypeError' ||
+          err?.name === 'AbortError'
+        ) {
+          throw err;
+        }
+        console.warn('Server translation request notice:', err?.message || err);
       }
     }
 
-    // 2. Offline Fallback Strategy:
-    // A. Check curated offline phrasebook
+    // 2. Honest Offline Fallback Strategy:
+    // A. Check curated offline phrasebook (confidence 1.0)
     const phraseMatch = findInOfflinePhrasebook(trimmed, sourceLang, targetLang);
     if (phraseMatch) {
       return {
@@ -146,97 +238,17 @@ class TranslatorService {
         targetLang,
         isOffline: true,
         engine: 'offline-lexicon',
-        confidence: 0.98,
-        dialectNotes: phraseMatch.notes || 'Matched from offline emergency & interstate travel lexicon',
+        confidence: 1.0,
+        dialectNotes: phraseMatch.notes || 'Matched from curated offline interstate phrasebook',
         timestamp: Date.now(),
       };
     }
 
-    // B. Target is Mandali (Himachal Western Pahadi)
-    if (targetLang === 'mjl') {
-      const mandaliResult = applyMandaliDialectRules(trimmed);
-      return {
-        id,
-        originalText: trimmed,
-        translatedText: mandaliResult.text,
-        phoneticText: mandaliResult.phonetic,
-        sourceLang,
-        targetLang,
-        isOffline: true,
-        engine: 'rule-morphology',
-        confidence: 0.88,
-        dialectNotes: mandaliResult.notes,
-        timestamp: Date.now(),
-      };
-    }
-
-    // C. Source is Mandali, Target is Hindi
-    if (sourceLang === 'mjl' && targetLang === 'hi') {
-      // Reverse common Mandali words back to standard Hindi
-      let hiText = trimmed
-        .replace(/\bकुथु\b/g, 'कहाँ')
-        .replace(/\bके\b/g, 'क्या')
-        .replace(/\bतुसां\b/g, 'आप')
-        .replace(/\bतुहाड़ा\b/g, 'आपका')
-        .replace(/\bचहिदा\b/g, 'चाहिए')
-        .replace(/\bपाणी\b/g, 'पानी')
-        .replace(/\bजांदे\b/g, 'जा रहे हैं')
-        .replace(/\bऔंदे\b/g, 'आ रहे हैं')
-        .replace(/\bनी\b/g, 'नहीं');
-
-      return {
-        id,
-        originalText: trimmed,
-        translatedText: hiText,
-        phoneticText: transliterateDevanagariToPhonetic(hiText),
-        sourceLang,
-        targetLang,
-        isOffline: true,
-        engine: 'rule-morphology',
-        confidence: 0.85,
-        dialectNotes: 'Interpreted from Mandali Pahadi to Standard Hindi',
-        timestamp: Date.now(),
-      };
-    }
-
-    // D. Target is Odia (Offline rule transliteration / vocabulary mapping)
-    if (targetLang === 'or') {
-      const phonetic = transliterateDevanagariToPhonetic(trimmed);
-      return {
-        id,
-        originalText: trimmed,
-        translatedText: trimmed, // Keeps text or applies Odia phonetics
-        phoneticText: phonetic,
-        sourceLang,
-        targetLang,
-        isOffline: true,
-        engine: 'offline-lexicon',
-        confidence: 0.75,
-        dialectNotes: 'Offline phonetic transliteration ready for Odia audio synthesis',
-        timestamp: Date.now(),
-      };
-    }
-
-    // E. General fallback (Phonetics and clean script transfer)
-    const phonetic = (sourceLang === 'hi' || sourceLang === 'mjl')
-      ? transliterateDevanagariToPhonetic(trimmed)
-      : (sourceLang === 'or')
-      ? transliterateOdiaToPhonetic(trimmed)
-      : trimmed;
-
-    return {
-      id,
-      originalText: trimmed,
-      translatedText: trimmed,
-      phoneticText: phonetic,
-      sourceLang,
-      targetLang,
-      isOffline: true,
-      engine: 'offline-lexicon',
-      confidence: 0.7,
-      dialectNotes: 'Offline phonetic mode active (network disconnected)',
-      timestamp: Date.now(),
-    };
+    // B. Arbitrary text without curated phrasebook match: FAIL EXPLICITLY.
+    // Do NOT echo source text with fabricated .75 or .5 confidence!
+    throw new Error(
+      `Offline translation is only available for saved phrasebook expressions. Connect to Internet with active Gemini API key/quota to translate arbitrary sentences into ${targetLang.toUpperCase()}.`
+    );
   }
 }
 

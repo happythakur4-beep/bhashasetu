@@ -15,12 +15,10 @@ import { HeaderBar } from './components/HeaderBar';
 import { BottomNavigation } from './components/BottomNavigation';
 import { WalkieTalkieView } from './components/WalkieTalkieView';
 import { DualTranslatorView } from './components/DualTranslatorView';
-import { MeshRadarView } from './components/MeshRadarView';
 import { PhrasebookView } from './components/PhrasebookView';
 import { ConversationHistoryView } from './components/ConversationHistoryView';
-import { DialectExplainerModal } from './components/DialectExplainerModal';
 import { LanguagePackManagerModal } from './components/LanguagePackManagerModal';
-import { NeoGlassBackground } from './components/NeoGlassBackground';
+import { WordLearningModal } from './components/WordLearningModal';
 import { audioEngine } from './services/audioEngine';
 import { translatorService } from './services/translatorService';
 import { meshNetwork } from './services/meshNetwork';
@@ -43,10 +41,11 @@ function AppContent() {
   const [isMuted, setIsMuted] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [hasGeminiKey, setHasGeminiKey] = useState(true);
-  const [showDialectGuide, setShowDialectGuide] = useState(false);
   const [showLanguagePacks, setShowLanguagePacks] = useState(false);
+  const [showWordLearning, setShowWordLearning] = useState(false);
+  const [wordLearningInitial, setWordLearningInitial] = useState<{ word?: string; translation?: string }>({});
 
-  // Conversation history with initial seed
+  // Conversation history initialized clean without fake seed bloat
   const [messages, setMessages] = useState<ConversationMessage[]>(() => {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('bhashasetu_messages') : null;
     if (saved) {
@@ -56,41 +55,7 @@ function AppContent() {
         // ignore
       }
     }
-
-    // Seed realistic interstate conversation
-    return [
-      {
-        id: 'seed_1',
-        sender: 'peer',
-        senderName: 'HP-Mandi-Relief (Himachal)',
-        senderState: 'Himachal Pradesh',
-        sourceLang: 'mjl',
-        targetLang: 'hi',
-        originalText: 'तुसां जो नमस्कार! कुथु जांदे? मां जो रस्ता दस्सा।',
-        translatedText: 'आपको नमस्कार! कहाँ जा रहे हैं? मुझे रास्ता बताइए।',
-        phoneticText: 'Tusan jo namaskar! Kuthu jaande? Maan jo rasta dassa.',
-        timestamp: Date.now() - 1000 * 60 * 8,
-        isOffline: true,
-        engine: 'rule-morphology',
-        channel: 3,
-        isStarred: true,
-      },
-      {
-        id: 'seed_2',
-        sender: 'peer',
-        senderName: 'OD-Coastal-Unit (Odisha)',
-        senderState: 'Odisha',
-        sourceLang: 'or',
-        targetLang: 'en',
-        originalText: 'ନମସ୍କାର! ନିକଟତମ ବସ ଷ୍ଟାଣ୍ଡ କିମ୍ବା ରେଳ ଷ୍ଟେସନ କେତେ ଦୂର?',
-        translatedText: 'Greetings! How far is the nearest bus stand or railway station?',
-        phoneticText: 'Namaskara! Nikatatama bus stand kimba railway station kete doora?',
-        timestamp: Date.now() - 1000 * 60 * 3,
-        isOffline: true,
-        engine: 'offline-lexicon',
-        channel: 3,
-      },
-    ];
+    return [];
   });
 
   // Check network & server status on mount
@@ -160,9 +125,6 @@ function AppContent() {
           : 'flex flex-col h-screen w-full bg-[#f4f6fb] text-slate-800 overflow-hidden font-sans select-none antialiased relative'
       }
     >
-      {/* Light Mode Neo-Apple Organic Glass Background */}
-      {!isDark && <NeoGlassBackground />}
-
       {/* Top Header Bar with Theme Toggle */}
       <HeaderBar
         currentChannel={currentChannel}
@@ -175,8 +137,11 @@ function AppContent() {
           setIsMuted(!isMuted);
           if (!isMuted) audioEngine.stopSpeaking();
         }}
-        onOpenRadar={() => setCurrentMode('mesh_radar')}
         onOpenSettings={() => setShowLanguagePacks(true)}
+        onOpenWordLearning={() => {
+          setWordLearningInitial({});
+          setShowWordLearning(true);
+        }}
       />
 
       {/* Main View Area */}
@@ -192,8 +157,11 @@ function AppContent() {
             onSwapLanguages={handleSwapLanguages}
             onNewMessage={handleNewMessage}
             isMuted={isMuted}
-            onOpenDialectGuide={() => setShowDialectGuide(true)}
             onOpenPackManager={() => setShowLanguagePacks(true)}
+            onOpenWordLearning={(word, translation) => {
+              setWordLearningInitial({ word, translation });
+              setShowWordLearning(true);
+            }}
           />
         )}
 
@@ -206,14 +174,10 @@ function AppContent() {
             onNewMessage={handleNewMessage}
             isMuted={isMuted}
             onOpenPackManager={() => setShowLanguagePacks(true)}
-          />
-        )}
-
-        {currentMode === 'mesh_radar' && (
-          <MeshRadarView
-            currentChannel={currentChannel}
-            onSelectChannel={handleSelectChannel}
-            onSelectPeerToTalk={handleSelectPeerToTalk}
+            onOpenWordLearning={(word, translation) => {
+              setWordLearningInitial({ word, translation });
+              setShowWordLearning(true);
+            }}
           />
         )}
 
@@ -247,16 +211,20 @@ function AppContent() {
         unreadCount={0}
       />
 
-      {/* Dialect Linguistic Guide Modal */}
-      <DialectExplainerModal
-        isOpen={showDialectGuide}
-        onClose={() => setShowDialectGuide(false)}
-      />
-
       {/* Language Pack Manager (Offline TTS & Dialect Speech) Modal */}
       <LanguagePackManagerModal
         isOpen={showLanguagePacks}
         onClose={() => setShowLanguagePacks(false)}
+      />
+
+      {/* Interactive Voice Learning Modal */}
+      <WordLearningModal
+        isOpen={showWordLearning}
+        onClose={() => setShowWordLearning(false)}
+        initialSourceWord={wordLearningInitial.word}
+        initialTranslation={wordLearningInitial.translation}
+        sourceLang={sourceLang}
+        targetLang={targetLang}
       />
     </div>
   );

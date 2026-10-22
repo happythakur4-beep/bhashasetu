@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="purple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#7e22ce" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <!-- Walkie Antenna -->
+  <rect x="180" y="70" width="20" height="110" rx="10" fill="#334155" />
+  <!-- Signal Waves -->
+  <path d="M 220 120 A 40 40 0 0 1 220 170" fill="none" stroke="#10b981" stroke-width="12" stroke-linecap="round" />
+  <path d="M 240 100 A 70 70 0 0 1 240 190" fill="none" stroke="#10b981" stroke-width="12" stroke-linecap="round" opacity="0.7" />
+  <!-- Main Radio Body -->
+  <rect x="140" y="160" width="232" height="280" rx="40" fill="#1e293b" stroke="#334155" stroke-width="8" />
+  <!-- Screen -->
+  <rect x="170" y="200" width="172" height="100" rx="20" fill="#090d16" stroke="#10b981" stroke-width="4" />
+  <text x="256" y="245" font-family="sans-serif" font-weight="bold" font-size="22" fill="#10b981" text-anchor="middle">BHASHA SETU</text>
+  <text x="256" y="275" font-family="sans-serif" font-size="16" fill="#a855f7" text-anchor="middle">CH-03 • PTT MESH</text>
+  <!-- Speaker Grille -->
+  <line x1="180" y1="330" x2="332" y2="330" stroke="#475569" stroke-width="8" stroke-linecap="round" />
+  <line x1="200" y1="355" x2="312" y2="355" stroke="#475569" stroke-width="8" stroke-linecap="round" />
+  <line x1="220" y1="380" x2="292" y2="380" stroke="#475569" stroke-width="8" stroke-linecap="round" />
+  <!-- PTT Button Indicator -->
+  <circle cx="108" cy="270" r="22" fill="url(#accent)" />
+  <path d="M 108 258 L 108 282 M 96 270 L 120 270" stroke="#ffffff" stroke-width="5" stroke-linecap="round" />
+</svg>

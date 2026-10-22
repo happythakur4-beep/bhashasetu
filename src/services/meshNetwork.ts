@@ -1,39 +1,17 @@
 import { ChannelNumber, LanguageCode, MeshNode, MeshPacket } from '../types';
+import { peerMesh, RemotePeer } from './peerMesh';
 
 export type MeshEventListener = (packet: MeshPacket) => void;
 export type NodeDiscoveryListener = (nodes: MeshNode[]) => void;
 
-interface HeartbeatMessage {
-  type: 'HEARTBEAT';
-  node: MeshNode;
-}
-
-interface RadioPacketMessage {
-  type: 'MESH_PACKET';
-  packet: MeshPacket;
-}
-
-interface PingMessage {
-  type: 'PING';
-  fromId: string;
-  toId: string;
-  timestamp: number;
-}
-
-type MeshWireMessage = HeartbeatMessage | RadioPacketMessage | PingMessage;
-
 class MeshNetworkManager {
-  private channelName = 'bhashasetu_mesh_v1';
-  private broadcastChannel: BroadcastChannel | null = null;
   private localNode: MeshNode;
   private discoveredNodes: Map<string, MeshNode> = new Map();
   private packetListeners: Set<MeshEventListener> = new Set();
   private nodeListeners: Set<NodeDiscoveryListener> = new Set();
   private processedPacketIds: Set<string> = new Set();
-  private heartbeatInterval: number | null = null;
-  private pruneInterval: number | null = null;
-  private simulatedNodes: MeshNode[] = [];
-  private simulationTimer: number | null = null;
+  private isDemoMode: boolean = false;
+  private demoNodes: MeshNode[] = [];
 
   constructor() {
     const savedName = typeof localStorage !== 'undefined' ? localStorage.getItem('bhashasetu_node_name') : null;
@@ -42,156 +20,140 @@ class MeshNetworkManager {
 
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     this.localNode = {
-      id: `node_${Date.now()}_${randomSuffix}`,
+      id: peerMesh.getClientId() || `node_${Date.now()}_${randomSuffix}`,
       name: savedName || `Setu-Unit-${randomSuffix}`,
       state: savedState || 'Himachal Pradesh (Mandi)',
-      activeLanguage: savedLang || 'mjl',
+      activeLanguage: savedLang || 'hi',
       lastSeen: Date.now(),
-      signalDbm: -42,
-      channel: 3, // Default Public intercom
+      signalDbm: -45,
+      channel: 3, // Default Public intercom talkgroup
       isLocalUser: true,
-      batteryLevel: 94,
-      distanceMeters: 0,
     };
 
-    this.initSimulatedNodes();
-    this.initTransport();
+    this.initDemoNodesList();
+    this.initPresenceListener();
   }
 
-  // Initialize simulated nodes from different Indian states for testing & field training
-  private initSimulatedNodes() {
-    this.simulatedNodes = [
+  // Demo simulation nodes - only used when user explicitly enables Demo Mode
+  private initDemoNodesList() {
+    this.demoNodes = [
       {
-        id: 'node_hp_mandi_01',
-        name: 'HP-Mandi-Relief (Himachal)',
-        state: 'Himachal Pradesh',
+        id: 'demo_hp_mandi_01',
+        name: '[DEMO] HP-Mandi-Relief',
+        state: 'Himachal Pradesh (Simulated)',
         activeLanguage: 'mjl',
         lastSeen: Date.now(),
         signalDbm: -58,
         channel: 3,
         isLocalUser: false,
-        batteryLevel: 88,
-        distanceMeters: 140,
       },
       {
-        id: 'node_od_puri_02',
-        name: 'OD-Coastal-Unit (Odisha)',
-        state: 'Odisha',
+        id: 'demo_od_puri_02',
+        name: '[DEMO] OD-Coastal-Unit',
+        state: 'Odisha (Simulated)',
         activeLanguage: 'or',
         lastSeen: Date.now(),
         signalDbm: -67,
         channel: 3,
         isLocalUser: false,
-        batteryLevel: 79,
-        distanceMeters: 420,
       },
       {
-        id: 'node_dl_highway_03',
-        name: 'DL-Highway-Logistics (Delhi)',
-        state: 'Delhi NCR',
+        id: 'demo_dl_highway_03',
+        name: '[DEMO] DL-Highway-Logistics',
+        state: 'Delhi NCR (Simulated)',
         activeLanguage: 'hi',
         lastSeen: Date.now(),
         signalDbm: -49,
         channel: 2,
         isLocalUser: false,
-        batteryLevel: 92,
-        distanceMeters: 85,
-      },
-      {
-        id: 'node_sos_emergency_04',
-        name: 'NH-Disaster-Coord (Emergency)',
-        state: 'National Highway Post',
-        activeLanguage: 'en',
-        lastSeen: Date.now(),
-        signalDbm: -52,
-        channel: 1,
-        isLocalUser: false,
-        batteryLevel: 99,
-        distanceMeters: 60,
       },
     ];
-
-    // Add them to discovered nodes
-    this.simulatedNodes.forEach((node) => {
-      this.discoveredNodes.set(node.id, node);
-    });
   }
 
-  private initTransport() {
-    if (typeof window === 'undefined') return;
+  // Hook into peerMesh room presence: true peers in the same room
+  private initPresenceListener() {
+    // Listen to real room presence changes from server WebSocket
+    peerMesh.onPresenceChange((remotePeers: RemotePeer[]) => {
+      this.syncDiscoveredNodes(remotePeers);
+    });
 
-    try {
-      this.broadcastChannel = new BroadcastChannel(this.channelName);
-      this.broadcastChannel.onmessage = (event: MessageEvent<MeshWireMessage>) => {
-        this.handleIncomingWireMessage(event.data);
-      };
-    } catch (err) {
-      console.warn('BroadcastChannel not supported in this environment:', err);
+    // Listen to real room packets
+    peerMesh.onPacket((packet: MeshPacket) => {
+      this.handleIncomingPacket(packet);
+    });
+
+    // Initial sync
+    this.syncDiscoveredNodes(peerMesh.getRemotePeers());
+  }
+
+  // Update discovered nodes from actual room peers
+  private syncDiscoveredNodes(remotePeers: RemotePeer[]) {
+    this.discoveredNodes.clear();
+
+    // 1. Add local user
+    this.discoveredNodes.set(this.localNode.id, {
+      ...this.localNode,
+      lastSeen: Date.now(),
+      isLocalUser: true,
+    });
+
+    // 2. Add real remote peers in the room
+    remotePeers.forEach((peer) => {
+      this.discoveredNodes.set(peer.clientId, {
+        id: peer.clientId,
+        name: peer.name,
+        state: peer.state,
+        activeLanguage: (peer.language as LanguageCode) || 'hi',
+        lastSeen: Date.now(),
+        signalDbm: -45, // real internet room link
+        channel: this.localNode.channel,
+        isLocalUser: false,
+      });
+    });
+
+    // 3. If demo mode is explicitly turned on by user, include demo nodes
+    if (this.isDemoMode) {
+      this.demoNodes.forEach((node) => {
+        this.discoveredNodes.set(node.id, {
+          ...node,
+          lastSeen: Date.now(),
+        });
+      });
     }
 
-    // Start periodic heartbeat broadcast
-    this.heartbeatInterval = window.setInterval(() => {
-      this.broadcastHeartbeat();
-    }, 3000);
-
-    // Prune stale nodes (not seen in > 15 seconds)
-    this.pruneInterval = window.setInterval(() => {
-      const now = Date.now();
-      let changed = false;
-      this.discoveredNodes.forEach((node, id) => {
-        if (!node.isLocalUser && !id.startsWith('node_hp_') && !id.startsWith('node_od_') && !id.startsWith('node_dl_') && !id.startsWith('node_sos_')) {
-          if (now - node.lastSeen > 16000) {
-            this.discoveredNodes.delete(id);
-            changed = true;
-          }
-        }
-      });
-      if (changed) {
-        this.notifyNodeListeners();
-      }
-    }, 5000);
-
-    // Initial heartbeat
-    setTimeout(() => this.broadcastHeartbeat(), 200);
+    this.notifyNodeListeners();
   }
 
-  private handleIncomingWireMessage(data: MeshWireMessage) {
-    if (!data || !data.type) return;
+  private handleIncomingPacket(packet: MeshPacket) {
+    if (!packet || !packet.id) return;
 
-    if (data.type === 'HEARTBEAT') {
-      const remoteNode = data.node;
-      if (remoteNode.id === this.localNode.id) return; // Ignore own echo
+    if (this.processedPacketIds.has(packet.id)) return;
+    this.processedPacketIds.add(packet.id);
 
-      this.discoveredNodes.set(remoteNode.id, {
-        ...remoteNode,
-        isLocalUser: false,
+    if (this.processedPacketIds.size > 200) {
+      const first = this.processedPacketIds.values().next().value;
+      if (first) this.processedPacketIds.delete(first);
+    }
+
+    // Update peer last seen
+    if (packet.senderId && this.discoveredNodes.has(packet.senderId)) {
+      const node = this.discoveredNodes.get(packet.senderId)!;
+      this.discoveredNodes.set(packet.senderId, {
+        ...node,
         lastSeen: Date.now(),
-        // Simulate minor RSSI jitter
-        signalDbm: Math.max(-95, Math.min(-45, remoteNode.signalDbm + (Math.floor(Math.random() * 5) - 2))),
       });
       this.notifyNodeListeners();
-    } else if (data.type === 'MESH_PACKET') {
-      const packet = data.packet;
-      // Deduplicate
-      if (this.processedPacketIds.has(packet.id)) return;
-      this.processedPacketIds.add(packet.id);
+    }
 
-      // Keep deduplication set compact
-      if (this.processedPacketIds.size > 200) {
-        const first = this.processedPacketIds.values().next().value;
-        if (first) this.processedPacketIds.delete(first);
-      }
-
-      // Check channel match (unless emergency SOS which rings on all channels)
-      if (packet.channel === this.localNode.channel || packet.isEmergency) {
-        this.packetListeners.forEach((listener) => {
-          try {
-            listener(packet);
-          } catch (e) {
-            console.error('Packet listener error:', e);
-          }
-        });
-      }
+    // Channel check: match talkgroup or emergency priority
+    if (packet.channel === this.localNode.channel || packet.isEmergency) {
+      this.packetListeners.forEach((listener) => {
+        try {
+          listener(packet);
+        } catch (e) {
+          console.error('Packet listener error:', e);
+        }
+      });
     }
   }
 
@@ -208,33 +170,24 @@ class MeshNetworkManager {
       if (updates.activeLanguage) localStorage.setItem('bhashasetu_node_lang', updates.activeLanguage);
     }
 
-    this.broadcastHeartbeat();
+    peerMesh.updateClientProfile(this.localNode.name, this.localNode.state, this.localNode.activeLanguage);
+    this.syncDiscoveredNodes(peerMesh.getRemotePeers());
   }
 
   public setChannel(channel: ChannelNumber) {
     this.localNode.channel = channel;
-    this.broadcastHeartbeat();
+    this.syncDiscoveredNodes(peerMesh.getRemotePeers());
   }
 
-  public broadcastHeartbeat() {
-    if (!this.broadcastChannel) return;
-    const msg: HeartbeatMessage = {
-      type: 'HEARTBEAT',
-      node: { ...this.localNode, lastSeen: Date.now() },
-    };
-    try {
-      this.broadcastChannel.postMessage(msg);
-    } catch (e) {
-      console.warn('Broadcast heartbeat error:', e);
-    }
-  }
-
-  // Transmit voice/text packet across mesh network
+  // Transmit voice/text packet across room network
   public transmitPacket(packetData: Omit<MeshPacket, 'id' | 'senderId' | 'senderName' | 'senderState' | 'timestamp' | 'hopCount' | 'rssi'>): MeshPacket {
+    const currentClientId = peerMesh.getClientId() || this.localNode.id;
+    this.localNode.id = currentClientId;
+
     const packet: MeshPacket = {
       ...packetData,
       id: `pkt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      senderId: this.localNode.id,
+      senderId: currentClientId,
       senderName: this.localNode.name,
       senderState: this.localNode.state,
       timestamp: Date.now(),
@@ -245,23 +198,23 @@ class MeshNetworkManager {
     // Mark as seen so we don't re-process locally
     this.processedPacketIds.add(packet.id);
 
-    // Broadcast over BroadcastChannel to other tabs/windows
-    if (this.broadcastChannel) {
-      const msg: RadioPacketMessage = {
-        type: 'MESH_PACKET',
-        packet,
-      };
-      try {
-        this.broadcastChannel.postMessage(msg);
-      } catch (e) {
-        console.warn('Error broadcasting mesh packet:', e);
-      }
-    }
+    // Broadcast over WebSocket room transport to other members
+    peerMesh.broadcastPacket(packet);
 
     return packet;
   }
 
-  // Simulate an incoming transmission from a remote state (e.g. Mandali driver or Odia caller)
+  // Demo mode toggle (Default: OFF)
+  public isDemoModeActive(): boolean {
+    return this.isDemoMode;
+  }
+
+  public setDemoMode(enabled: boolean) {
+    this.isDemoMode = enabled;
+    this.syncDiscoveredNodes(peerMesh.getRemotePeers());
+  }
+
+  // Explicit demo simulation trigger - only enabled when requested
   public triggerSimulatedPeerTransmission(params: {
     nodeId: string;
     originalText: string;
@@ -271,11 +224,14 @@ class MeshNetworkManager {
     targetLang: LanguageCode;
     isEmergency?: boolean;
   }): MeshPacket {
-    const peerNode = this.discoveredNodes.get(params.nodeId) || this.simulatedNodes[0];
+    this.isDemoMode = true;
+    this.syncDiscoveredNodes(peerMesh.getRemotePeers());
+
+    const peerNode = this.demoNodes.find((n) => n.id === params.nodeId) || this.demoNodes[0];
 
     const packet: MeshPacket = {
       id: `sim_pkt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      channel: this.localNode.channel,
+      channel: params.isEmergency ? 1 : this.localNode.channel,
       senderId: peerNode.id,
       senderName: peerNode.name,
       senderState: peerNode.state,
@@ -285,20 +241,12 @@ class MeshNetworkManager {
       translatedText: params.translatedText,
       phoneticText: params.phoneticText,
       timestamp: Date.now(),
-      hopCount: 2,
-      rssi: peerNode.signalDbm,
+      hopCount: 1,
+      rssi: -55,
       isEmergency: params.isEmergency,
     };
 
-    // Deliver to listeners
-    this.packetListeners.forEach((listener) => {
-      try {
-        listener(packet);
-      } catch (err) {
-        console.error('Simulated packet delivery error:', err);
-      }
-    });
-
+    this.handleIncomingPacket(packet);
     return packet;
   }
 
@@ -313,7 +261,7 @@ class MeshNetworkManager {
     };
   }
 
-  public onNodesChange(listener: NodeDiscoveryListener): () => void {
+  public onNodesDiscovered(listener: NodeDiscoveryListener): () => void {
     this.nodeListeners.add(listener);
     listener(this.getDiscoveredNodes());
     return () => {
@@ -322,26 +270,14 @@ class MeshNetworkManager {
   }
 
   private notifyNodeListeners() {
-    const list = this.getDiscoveredNodes();
+    const nodes = this.getDiscoveredNodes();
     this.nodeListeners.forEach((listener) => {
       try {
-        listener(list);
+        listener(nodes);
       } catch (e) {
         console.error('Node listener error:', e);
       }
     });
-  }
-
-  public cleanup() {
-    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
-    if (this.pruneInterval) clearInterval(this.pruneInterval);
-    if (this.simulationTimer) clearInterval(this.simulationTimer);
-    if (this.broadcastChannel) {
-      this.broadcastChannel.close();
-      this.broadcastChannel = null;
-    }
-    this.packetListeners.clear();
-    this.nodeListeners.clear();
   }
 }
 

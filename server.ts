@@ -7,10 +7,12 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import {
   findInOfflinePhrasebook,
-  applyMandaliDialectRules,
   transliterateDevanagariToPhonetic,
   transliterateOdiaToPhonetic,
 } from './src/services/languageRegistry';
+import { roomRelay } from './src/server/roomRelay';
+import { getHonestOfflineTranslation, langNames } from './src/server/offlineTranslation';
+import { apiQuotaTracker } from './src/server/apiQuotaTracker';
 
 dotenv.config();
 
@@ -26,125 +28,65 @@ app.use(express.json({ limit: '20mb' }));
 const apiKey = process.env.GEMINI_API_KEY || '';
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-// Language mapping for prompt context
-const langNames: Record<string, string> = {
-  hi: 'Hindi (हिन्दी - Devanagari script)',
-  en: 'Indian English',
-  or: 'Odia (ଓଡ଼ିଆ - Odia script)',
-  mjl: 'Mandyali / Mandali (माण्डली - Western Pahadi of Mandi, Himachal Pradesh; write in Devanagari script)',
-  pa: 'Punjabi (ਪੰਜਾਬੀ - Gurmukhi script)',
-  bn: 'Bengali (বাংলা - Bengali script)',
-  mr: 'Marathi (मराठी - Devanagari script)',
-  ta: 'Tamil (தமிழ் - Tamil script)',
-  te: 'Telugu (తెలుగు - Telugu script)',
-};
+// Configurable model identifiers with reliable defaults
+const TRANSLATE_MODEL = process.env.GEMINI_TRANSLATE_MODEL || 'gemini-3.8-flash';
+const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.5-transcribe';
+const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
+const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
 
-// Robust offline fallback translation for guaranteed uptime & zero 500s on quota exhaustion
-function getOfflineFallbackTranslation(
-  text: string,
-  sourceLang: string,
-  targetLang: string
-) {
-  const trimmed = text.trim();
+apiQuotaTracker.setModels({
+  translate: TRANSLATE_MODEL,
+  transcribe: TRANSCRIBE_MODEL,
+  tts: TTS_MODEL,
+  live: LIVE_MODEL,
+});
 
-  // 1. Direct phrasebook match
-  const phraseMatch = findInOfflinePhrasebook(
-    trimmed,
-    sourceLang as any,
-    targetLang as any
-  );
-  if (phraseMatch) {
-    return {
-      translatedText: phraseMatch.text,
-      phoneticText: phraseMatch.phonetic,
-      detectedSource: sourceLang,
-      dialectNotes: phraseMatch.notes || 'Matched from offline interstate emergency & travel lexicon',
-      confidence: 0.98,
-      isOffline: true,
-    };
+export { getHonestOfflineTranslation, langNames };
+
+// Helper: Synthesize real Gemini TTS audio for translated text
+async function generateGeminiTTS(text: string, voiceName: string = 'Kore'): Promise<string | null> {
+  if (!ai || !apiKey || !text.trim()) return null;
+  try {
+    const response = await ai.models.generateContent({
+      model: TTS_MODEL,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: text.trim() }],
+        },
+      ],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName },
+          },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    return base64Audio || null;
+  } catch (err: any) {
+    console.warn(`Gemini TTS (${TTS_MODEL}) generation notice:`, err?.message || err);
+    return null;
   }
-
-  // 2. Mandali dialect transformation rules (Western Pahadi)
-  if (targetLang === 'mjl') {
-    const mandaliResult = applyMandaliDialectRules(trimmed);
-    return {
-      translatedText: mandaliResult.text,
-      phoneticText: mandaliResult.phonetic,
-      detectedSource: sourceLang,
-      dialectNotes: mandaliResult.notes,
-      confidence: 0.88,
-      isOffline: true,
-    };
-  }
-
-  // 3. Mandali to Hindi reverse mapping
-  if (sourceLang === 'mjl' && targetLang === 'hi') {
-    const hiText = trimmed
-      .replace(/\bकुथु\b/g, 'कहाँ')
-      .replace(/\bके\b/g, 'क्या')
-      .replace(/\bतुसां\b/g, 'आप')
-      .replace(/\bतुहाड़ा\b/g, 'आपका')
-      .replace(/\bचहिदा\b/g, 'चाहिए')
-      .replace(/\bपाणी\b/g, 'पानी')
-      .replace(/\bजांदे\b/g, 'जा रहे हैं')
-      .replace(/\bऔंदे\b/g, 'आ रहे हैं')
-      .replace(/\bनी\b/g, 'नहीं');
-
-    return {
-      translatedText: hiText,
-      phoneticText: transliterateDevanagariToPhonetic(hiText),
-      detectedSource: sourceLang,
-      dialectNotes: 'Interpreted from Mandali Pahadi to Standard Hindi',
-      confidence: 0.85,
-      isOffline: true,
-    };
-  }
-
-  // 4. Target is Odia
-  if (targetLang === 'or') {
-    const phonetic = transliterateDevanagariToPhonetic(trimmed);
-    return {
-      translatedText: trimmed,
-      phoneticText: phonetic,
-      detectedSource: sourceLang,
-      dialectNotes: 'Offline phonetic transliteration ready for Odia audio synthesis',
-      confidence: 0.75,
-      isOffline: true,
-    };
-  }
-
-  // 5. General fallback
-  const phonetic =
-    sourceLang === 'hi' || sourceLang === 'mjl'
-      ? transliterateDevanagariToPhonetic(trimmed)
-      : sourceLang === 'or'
-      ? transliterateOdiaToPhonetic(trimmed)
-      : trimmed;
-
-  return {
-    translatedText: trimmed,
-    phoneticText: phonetic,
-    detectedSource: sourceLang,
-    dialectNotes: 'Offline phonetic mode active (mesh intercom fallback)',
-    confidence: 0.75,
-    isOffline: true,
-  };
 }
 
-// 1. Audio Transcription using model 'gemini-3.5-transcribe' with graceful fallback
+// 1. Audio Transcription using configurable model (default: gemini-3.5-transcribe)
 app.post('/api/transcribe', async (req, res) => {
   const { audio, mimeType, language } = req.body;
 
   if (!audio) {
-    return res.status(400).json({ error: 'Missing required audio data' });
+    return res.status(400).json({ success: false, error: 'Missing required audio data' });
   }
 
   if (!ai || !apiKey) {
-    return res.json({
+    return res.status(503).json({
       success: false,
       transcript: '',
-      offlineRecommended: true,
-      error: 'GEMINI_API_KEY not configured on server',
+      error: 'GEMINI_API_KEY is not configured on the server. Audio transcription requires an API key.',
+      code: 'NO_API_KEY',
     });
   }
 
@@ -182,56 +124,123 @@ Rules:
 Output ONLY the transcription text. Do not add quotes, explanations, or notes.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-transcribe',
+      model: TRANSCRIBE_MODEL,
       contents: {
         parts: [audioPart, { text: prompt }],
       },
     });
 
     const transcript = response.text?.trim() || '';
+    apiQuotaTracker.recordRequest('transcribe', true);
 
-    res.json({
+    return res.json({
       success: true,
       transcript,
-      model: 'gemini-3.5-transcribe',
+      model: TRANSCRIBE_MODEL,
     });
   } catch (error: any) {
-    // If quota reached or transcription fails, return graceful response without crashing
-    res.json({
+    console.warn(`Transcription notice with ${TRANSCRIBE_MODEL}:`, error?.message);
+    const msg = String(error?.message || '');
+    const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+    apiQuotaTracker.recordRequest('transcribe', false, isQuota);
+
+    return res.status(isQuota ? 429 : 500).json({
       success: false,
       transcript: '',
-      error: error?.message || 'Transcription unavailable',
-      offlineRecommended: true,
+      error: isQuota
+        ? 'Gemini transcription rate limit / daily quota exceeded (429). Please use manual text input to test translation, or wait for quota reset.'
+        : error?.message || 'Transcription failed',
+      code: isQuota ? 'QUOTA_EXCEEDED' : 'TRANSCRIBE_ERROR',
+      quotaExhausted: isQuota,
+      retryAfter: isQuota ? 3600 : undefined,
+      hint: isQuota
+        ? 'Daily free-tier quota exhausted. You can use manual text input below to test translation, or wait for quota reset.'
+        : undefined,
     });
   }
 });
 
-// 2. Translation API endpoint using Gemini 3.8 Flash with 429 quota resilience and offline fallback
+// 2. Standalone Text-To-Speech Endpoint
+app.post('/api/tts', async (req, res) => {
+  const { text, language, voiceName } = req.body;
+
+  if (!text || !text.trim()) {
+    return res.status(400).json({ success: false, error: 'Missing text parameter' });
+  }
+
+  if (!ai || !apiKey) {
+    return res.status(503).json({
+      success: false,
+      error: 'GEMINI_API_KEY is not configured on the server.',
+      fallbackToClientTTS: true,
+    });
+  }
+
+  try {
+    const audioBase64 = await generateGeminiTTS(text, voiceName || 'Kore');
+    if (audioBase64) {
+      apiQuotaTracker.recordRequest('tts', true);
+      return res.json({
+        success: true,
+        audioBase64,
+        format: 'audio/wav',
+        model: TTS_MODEL,
+      });
+    } else {
+      apiQuotaTracker.recordRequest('tts', false);
+      return res.json({
+        success: false,
+        error: 'TTS model did not return audio',
+        fallbackToClientTTS: true,
+      });
+    }
+  } catch (err: any) {
+    const isQuota = String(err?.message || '').includes('429') || String(err?.message || '').includes('quota');
+    apiQuotaTracker.recordRequest('tts', false, isQuota);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'TTS generation failed',
+      fallbackToClientTTS: true,
+    });
+  }
+});
+
+// 3. Translation API endpoint with server-synthesized TTS audio
 app.post('/api/translate', async (req, res) => {
-  const { text, sourceLang, targetLang, context } = req.body;
+  const { text, sourceLang, targetLang, context, includeTTS } = req.body;
 
   if (!text || !sourceLang || !targetLang) {
-    return res.status(400).json({ error: 'Missing required fields: text, sourceLang, targetLang' });
+    return res.status(400).json({ success: false, error: 'Missing required fields: text, sourceLang, targetLang' });
   }
 
   const sourceName = langNames[sourceLang] || sourceLang;
   const targetName = langNames[targetLang] || targetLang;
 
-  // If Gemini key is not configured, immediately serve offline translation
+  // If Gemini key is not configured, fall back honestly
   if (!ai || !apiKey) {
-    const offlineResult = getOfflineFallbackTranslation(text, sourceLang, targetLang);
-    return res.json({
-      success: true,
-      data: offlineResult,
-      source: 'offline-rule-engine',
-      isOffline: true,
-      notice: 'Offline linguistic engine active (no API key configured)',
-    });
+    apiQuotaTracker.recordOfflineFallback();
+    const offlineResult = getHonestOfflineTranslation(text, sourceLang, targetLang);
+    if (offlineResult.success) {
+      return res.json({
+        success: true,
+        data: offlineResult.data,
+        source: 'offline-phrasebook',
+        isOffline: true,
+        notice: 'Offline phrasebook active (GEMINI_API_KEY not configured)',
+      });
+    } else {
+      return res.status(503).json({
+        success: false,
+        error: offlineResult.error,
+        isOffline: true,
+        code: 'NO_API_KEY',
+      });
+    }
   }
 
   try {
     const prompt = `You are a real-time linguistic engine for "BhashaSetu", an inter-state voice translator in India.
-Your mission is to translate speech between Indian regional languages with extreme cultural and dialectal precision.
+Your mission is to translate speech between Indian regional languages with cultural and dialectal precision.
 
 Source language: ${sourceName}
 Target language: ${targetName}
@@ -240,12 +249,13 @@ Context: ${context || 'Interstate voice intercom, emergency logistics, and trave
 Input text to translate:
 "${text}"
 
-Special Dialect Rules:
+Special Linguistic Rules:
 - If translating into "Mandyali" / "Mandali" (Western Pahadi spoken in Mandi, Himachal Pradesh):
   Use authentic Mandali grammar, honorifics, and vocabulary in Devanagari script.
   For example: "Where are you going?" -> "तुसां कुथु जांदे?" or "कुथु जांदे?"; "What is your name?" -> "तुहाड़ा नां के है?"; "How are you?" -> "केड़ा हाल चाल है?"; "Thank you" -> "बड़ा-बड़ा धन्यवाद / मेहरबानी"; "I need water" -> "मां जो पाणी चहिदा".
+  (Note: Mandyali is an experimental dialect model and requires native speaker validation).
 - If translating into "Odia":
-  Use proper Odia script (e.g., ନମସ୍କାର, ଆପଣ କେମିତି ଅଛନ୍ତି, ଧନ୍ୟବାଦ).
+  MUST use proper Odia script Unicode range \\u0B00-\\u0B7F (e.g., ନମସ୍କାର, ଆପଣ କେମିତି ଅଛନ୍ତି, ଧନ୍ୟବାଦ). Do not output English or Devanagari for Odia.
 - If translating into "Hindi":
   Use natural conversational Hindi in Devanagari script.
 - If translating into "English":
@@ -260,74 +270,76 @@ Respond ONLY with a valid JSON object matching this schema:
   "confidence": 0.95
 }`;
 
-    const isQuotaError = (err: any) => {
-      const msg = String(err?.message || '').toLowerCase();
-      const code = err?.code || err?.status || 0;
-      return (
-        code === 429 ||
-        msg.includes('429') ||
-        msg.includes('quota') ||
-        msg.includes('resource_exhausted') ||
-        msg.includes('rate limit')
-      );
-    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 14000); // 14s cancellable timeout
 
     let response: any = null;
-    let usedModel = 'gemini-3.8-flash';
+    let usedModel = TRANSLATE_MODEL;
 
     try {
       response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: TRANSLATE_MODEL,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
           temperature: 0.2,
+          abortSignal: controller.signal,
         },
       });
+      clearTimeout(timeout);
     } catch (primaryErr: any) {
-      if (isQuotaError(primaryErr)) {
-        // Quota reached on gemini-3.8-flash: try gemini-flash-latest once
-        try {
-          usedModel = 'gemini-flash-latest';
-          response = await ai.models.generateContent({
-            model: 'gemini-flash-latest',
-            contents: prompt,
-            config: {
-              responseMimeType: 'application/json',
-              temperature: 0.2,
-            },
-          });
-        } catch {
-          // If all models hit quota, serve offline linguistic translation seamlessly
-          const fallbackData = getOfflineFallbackTranslation(text, sourceLang, targetLang);
+      clearTimeout(timeout);
+      const msg = String(primaryErr?.message || primaryErr || '');
+      const isQuota =
+        msg.includes('429') ||
+        msg.includes('quota') ||
+        msg.includes('Quota') ||
+        msg.includes('RESOURCE_EXHAUSTED') ||
+        msg.includes('rate limit') ||
+        msg.includes('exceeded your current quota') ||
+        msg.includes('aborted') ||
+        primaryErr?.name === 'AbortError' ||
+        apiQuotaTracker.getSummary(Boolean(apiKey)).quotaStatus === 'quota_exceeded';
+
+      if (isQuota) {
+        apiQuotaTracker.recordRequest('translate', false, true);
+
+        // Honest offline phrasebook fallback
+        const offlineResult = getHonestOfflineTranslation(text, sourceLang, targetLang);
+        if (offlineResult.success) {
+          apiQuotaTracker.recordOfflineFallback();
           return res.json({
             success: true,
-            data: fallbackData,
-            source: 'offline-rule-engine',
+            data: offlineResult.data,
+            source: 'offline-phrasebook',
             isOffline: true,
-            notice: 'Gemini free tier daily quota reached; seamless offline engine active',
+            notice: 'Gemini rate limit reached; matched from authentic offline phrasebook',
+          });
+        } else {
+          return res.status(429).json({
+            success: false,
+            error: 'Gemini API daily quota / rate limit reached (HTTP 429). ' + offlineResult.error,
+            isOffline: true,
+            code: 'QUOTA_EXCEEDED',
           });
         }
       } else {
-        // For non-quota transient errors, short wait and retry with gemini-flash-latest
-        try {
-          await new Promise((r) => setTimeout(r, 400));
-          usedModel = 'gemini-flash-latest';
-          response = await ai.models.generateContent({
-            model: 'gemini-flash-latest',
-            contents: prompt,
-            config: {
-              responseMimeType: 'application/json',
-              temperature: 0.2,
-            },
-          });
-        } catch {
-          const fallbackData = getOfflineFallbackTranslation(text, sourceLang, targetLang);
+        // Non-quota error: attempt honest offline fallback
+        apiQuotaTracker.recordRequest('translate', false, false);
+        const offlineResult = getHonestOfflineTranslation(text, sourceLang, targetLang);
+        if (offlineResult.success) {
+          apiQuotaTracker.recordOfflineFallback();
           return res.json({
             success: true,
-            data: fallbackData,
-            source: 'offline-rule-engine',
+            data: offlineResult.data,
+            source: 'offline-phrasebook',
             isOffline: true,
+          });
+        } else {
+          return res.status(500).json({
+            success: false,
+            error: primaryErr?.message || 'Translation service temporarily unavailable.',
+            code: 'TRANSLATE_ERROR',
           });
         }
       }
@@ -342,45 +354,131 @@ Respond ONLY with a valid JSON object matching this schema:
       parsedData = JSON.parse(cleaned);
     }
 
+    // Verify Odia script when target is Odia
+    if (targetLang === 'or' && parsedData?.translatedText) {
+      const hasOdiaScript = /[\u0B00-\u0B7F]/.test(parsedData.translatedText);
+      if (!hasOdiaScript) {
+        parsedData.dialectNotes = (parsedData.dialectNotes || '') + ' (Note: Output script may require Odia font rendering)';
+      }
+    }
+
+    // Synthesize real translated speech WAV via Gemini TTS if requested or enabled
+    let ttsAudioBase64: string | null = null;
+    if (includeTTS !== false && parsedData?.translatedText) {
+      ttsAudioBase64 = await generateGeminiTTS(parsedData.translatedText);
+    }
+
+    apiQuotaTracker.recordRequest('translate', true);
+
     return res.json({
       success: true,
-      data: parsedData,
+      data: {
+        ...parsedData,
+        audioBase64: ttsAudioBase64 || undefined,
+      },
       source: usedModel,
     });
-  } catch {
-    // Ultimate graceful recovery: never fail with 500 when offline engine is available
-    const fallbackData = getOfflineFallbackTranslation(text, sourceLang, targetLang);
-    return res.json({
-      success: true,
-      data: fallbackData,
-      source: 'offline-rule-engine',
-      isOffline: true,
-    });
+  } catch (err: any) {
+    console.error('Translation error:', err);
+    apiQuotaTracker.recordRequest('translate', false, false);
+    const offlineResult = getHonestOfflineTranslation(text, sourceLang, targetLang);
+    if (offlineResult.success) {
+      apiQuotaTracker.recordOfflineFallback();
+      return res.json({
+        success: true,
+        data: offlineResult.data,
+        source: 'offline-phrasebook',
+        isOffline: true,
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Translation failed.',
+        code: 'TRANSLATE_ERROR',
+      });
+    }
   }
 });
 
-// 3. Health check endpoint
+// 4. Server Diagnostics & Health check endpoint
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     hasGeminiKey: Boolean(apiKey),
-    supportedModels: ['gemini-3.8-live', 'gemini-3.5-transcribe', 'gemini-3.8-flash', 'gemini-flash-latest'],
-    offlineEngine: 'ready',
-    version: '1.2.0',
+    models: {
+      translate: TRANSLATE_MODEL,
+      transcribe: TRANSCRIBE_MODEL,
+      tts: TTS_MODEL,
+      live: LIVE_MODEL,
+    },
+    rooms: {
+      activeRooms: roomRelay.getRoomsCount(),
+      totalConnectedPeers: roomRelay.getTotalPeersCount(),
+    },
+    quota: apiQuotaTracker.getSummary(Boolean(apiKey)),
+    appUrl: process.env.APP_URL || '',
+    version: '2.0.0',
   });
 });
 
-// 4. WebSocket Server for Gemini Live API ('gemini-3.8-live')
-const wss = new WebSocketServer({ server, path: '/live' });
+// 4b. Real-time API Quota Consumption Endpoint
+app.get('/api/quota', (_req, res) => {
+  res.json(apiQuotaTracker.getSummary(Boolean(apiKey)));
+});
 
-wss.on('connection', async (clientWs: WebSocket) => {
+// ==============================================================================
+// 5. SERVER WEBSOCKET ROOM RELAY (/rooms) & GEMINI LIVE API (/live)
+// ==============================================================================
+
+// Two standalone WebSocketServers without port conflicts
+const liveWss = new WebSocketServer({ noServer: true });
+const roomsWss = new WebSocketServer({ noServer: true, maxPayload: 3 * 1024 * 1024 }); // 3MB max payload
+
+// Single Upgrade Router to avoid path conflicts
+server.on('upgrade', (request, socket, head) => {
+  try {
+    const host = request.headers.host || 'localhost';
+    const url = new URL(request.url || '', `http://${host}`);
+    const pathname = url.pathname;
+
+    if (pathname === '/live') {
+      liveWss.handleUpgrade(request, socket, head, (ws) => {
+        liveWss.emit('connection', ws, request);
+      });
+    } else if (pathname === '/rooms') {
+      roomsWss.handleUpgrade(request, socket, head, (ws) => {
+        roomsWss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  } catch (err) {
+    console.warn('HTTP upgrade error:', err);
+    socket.destroy();
+  }
+});
+
+// Setup Room WebSocket Connection Handler using roomRelay service
+roomsWss.on('connection', (ws: WebSocket) => {
+  roomRelay.handleConnection(ws);
+});
+
+// Periodic heartbeat sweep to clean up dead sockets in rooms
+const heartbeatInterval = setInterval(() => {
+  roomRelay.sweepDeadSockets();
+}, 15000);
+
+heartbeatInterval.unref();
+
+// Gemini Live API WebSocket Handler
+liveWss.on('connection', async (clientWs: WebSocket) => {
   console.log('Gemini Live API client connected to /live');
 
   if (!ai || !apiKey) {
     clientWs.send(JSON.stringify({
       type: 'error',
-      message: 'GEMINI_API_KEY not configured on server. Offline mode active.',
+      message: 'GEMINI_API_KEY is not configured on the server.',
     }));
     return;
   }
@@ -389,7 +487,7 @@ wss.on('connection', async (clientWs: WebSocket) => {
 
   try {
     liveSession = await ai.live.connect({
-      model: 'gemini-3.8-live',
+      model: LIVE_MODEL,
       config: {
         responseModalities: [Modality.AUDIO],
         systemInstruction: `You are the real-time voice intelligence for BhashaSetu, an interstate voice intercom bridging Indian states.
@@ -398,14 +496,14 @@ When spoken to:
 - Respond in natural spoken audio.
 - Keep responses concise, clear, and radio-friendly.
 - If asked for translations between Hindi, English, Odia, or Mandyali, provide accurate regional translations with proper pronunciation.
-- If the user talks in Mandyali (e.g. "कुथु जांदे", "केड़ा हाल है"), converse warmly in Mandyali Pahadi or translate to the requested interstate language.`,
+- Note: Mandyali is an experimental dialect model and requires native speaker validation.`,
       },
       callbacks: {
         onopen: () => {
           if (clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(JSON.stringify({
               type: 'session_ready',
-              model: 'gemini-3.8-live',
+              model: LIVE_MODEL,
             }));
           }
         },
@@ -452,8 +550,10 @@ When spoken to:
         },
       },
     });
+    apiQuotaTracker.recordRequest('live', true);
   } catch (err: any) {
-    console.error('Failed to initialize gemini-3.8-live session:', err);
+    console.error(`Failed to initialize ${LIVE_MODEL} session:`, err);
+    apiQuotaTracker.recordRequest('live', false);
     if (clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(JSON.stringify({
         type: 'error',
@@ -487,9 +587,7 @@ When spoken to:
     if (liveSession) {
       try {
         liveSession.close();
-      } catch {
-        // ignore
-      }
+      } catch {}
       liveSession = null;
     }
   });
@@ -513,9 +611,13 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`BhashaSetu server listening on http://localhost:${port}`);
-    console.log(`Live API (gemini-3.8-live) ready on ws://localhost:${port}/live`);
-    console.log(`Audio Transcribe (gemini-3.5-transcribe) ready on /api/transcribe`);
+    console.log(`Room Relay ready on ws://localhost:${port}/rooms`);
+    console.log(`Live API (${LIVE_MODEL}) ready on ws://localhost:${port}/live`);
+    console.log(`Audio Transcribe (${TRANSCRIBE_MODEL}) ready on /api/transcribe`);
+    console.log(`Translation (${TRANSLATE_MODEL}) & TTS (${TTS_MODEL}) ready on /api/translate`);
   });
 }
 
-startServer();
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}

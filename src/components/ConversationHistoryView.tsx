@@ -8,11 +8,15 @@ import {
   Check,
   Clock,
   Search,
+  BarChart2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { ConversationMessage } from '../types';
 import { audioEngine } from '../services/audioEngine';
 import { SUPPORTED_LANGUAGES } from '../services/languageRegistry';
 import { useTheme } from '../context/ThemeContext';
+import { LanguageDashboardChart } from './LanguageDashboardChart';
 
 interface ConversationHistoryViewProps {
   messages: ConversationMessage[];
@@ -29,6 +33,7 @@ export const ConversationHistoryView: React.FC<ConversationHistoryViewProps> = (
   const [filterStarred, setFilterStarred] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showDashboard, setShowDashboard] = useState(true);
 
   const filteredMessages = messages.filter((msg) => {
     if (filterStarred && !msg.isStarred) return false;
@@ -139,6 +144,28 @@ export const ConversationHistoryView: React.FC<ConversationHistoryViewProps> = (
           </div>
 
           <button
+            onClick={() => setShowDashboard(!showDashboard)}
+            className={
+              isDark
+                ? `flex items-center space-x-1 px-3 py-1.5 rounded-xl border text-xs font-mono transition-colors ${
+                    showDashboard
+                      ? 'bg-purple-950/80 border-purple-600/70 text-purple-300 font-bold'
+                      : 'bg-zinc-850 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`
+                : `flex items-center space-x-1 px-3 py-2 rounded-2xl border text-xs font-mono transition-all ${
+                    showDashboard
+                      ? 'bg-purple-100 border-purple-300 text-purple-900 font-bold shadow-xs'
+                      : 'neo-gel-button text-slate-600 hover:text-slate-800 border-white/90'
+                  }`
+            }
+            title="Toggle Visual Language Usage Dashboard"
+          >
+            <BarChart2 className="w-3.5 h-3.5 text-purple-500" />
+            <span>Analytics</span>
+            {showDashboard ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+
+          <button
             onClick={() => setFilterStarred(!filterStarred)}
             className={
               isDark
@@ -167,6 +194,11 @@ export const ConversationHistoryView: React.FC<ConversationHistoryViewProps> = (
           </button>
         </div>
       </div>
+
+      {/* Visual Recharts Language Dashboard */}
+      {showDashboard && (
+        <LanguageDashboardChart messages={messages} isDark={isDark} />
+      )}
 
       {/* Message List */}
       <div className="space-y-2.5">

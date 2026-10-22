@@ -36,6 +36,7 @@ export interface TranslationResult {
   confidence: number;
   dialectNotes?: string;
   audioBase64?: string;
+  appliedLearnedWords?: string[];
   timestamp: number;
 }
 
@@ -68,6 +69,19 @@ export interface MeshPacket {
   hopCount: number;
   rssi: number; // dBm e.g. -45 to -90
   isEmergency?: boolean;
+  engine?: 'gemini-neural' | 'offline-lexicon' | 'rule-morphology';
+  isOffline?: boolean;
+  confidence?: number;
+  dialectNotes?: string;
+  ttsWarning?: string;
+  opusCompression?: {
+    originalSizeBytes: number;
+    compressedSizeBytes: number;
+    savingsPercent: number;
+    compressionLatencyMs: number;
+    bitrateKbps: number;
+    application: string;
+  };
 }
 
 export interface MeshNode {
@@ -112,6 +126,18 @@ export interface ConversationMessage {
   audioDurationMs?: number;
   isStarred?: boolean;
   channel?: ChannelNumber;
+  dialectNotes?: string;
+  confidence?: number;
+  ttsWarning?: string;
+  deliveryStatus?: 'delivered' | 'waiting_peer' | 'failed';
+  opusCompression?: {
+    originalSizeBytes: number;
+    compressedSizeBytes: number;
+    savingsPercent: number;
+    compressionLatencyMs: number;
+    bitrateKbps: number;
+    application: string;
+  };
 }
 
 export type VoiceFxType = 'normal' | 'deep_commander' | 'radio_dispatch' | 'cyborg_tactical' | 'mountain_echo';

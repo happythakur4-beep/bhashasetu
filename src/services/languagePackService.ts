@@ -27,6 +27,13 @@ export interface PackPreferences {
   speechPitch: number; // 0.8 - 1.2
   autoDownloadEmergencyPhrases: boolean;
   hapticOnSpeechComplete: boolean;
+  vadSensitivityThreshold: number; // Microphone activation threshold (5 - 50, default 24)
+  selectedVoicePersona: string; // Offline synthesized voice persona ID
+  customSystemVoiceName: string; // Browser TTS voice name override
+  isNoiseGateEnabled: boolean; // Field Audio Noise Gate
+  noiseGateThresholdDb: number; // -60 dB to -12 dB (default -36 dB)
+  windFilterCutoffHz: number; // 60 Hz to 250 Hz (default 120 Hz)
+  vocalBandEnhance: boolean; // Voice clarity boost (default true)
 }
 
 export const INITIAL_PACKS: LanguagePack[] = [
@@ -403,6 +410,13 @@ const DEFAULT_PREFERENCES: PackPreferences = {
   speechPitch: 1.0,
   autoDownloadEmergencyPhrases: true,
   hapticOnSpeechComplete: true,
+  vadSensitivityThreshold: 24,
+  selectedVoicePersona: 'vani_female',
+  customSystemVoiceName: '',
+  isNoiseGateEnabled: true,
+  noiseGateThresholdDb: -36,
+  windFilterCutoffHz: 120,
+  vocalBandEnhance: true,
 };
 
 type PackListener = (packs: LanguagePack[], prefs: PackPreferences) => void;
